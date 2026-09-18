@@ -1,11 +1,11 @@
 # Metado 设计文档
 
-日期：2026-09-18（rev 2：定位转向 + manifest 化 + 签名体系）
+日期：2026-09-18（rev 3：二进制 ESM 模块树容器，生产可调试）
 状态：待评审
 
 ## 1. 概述
 
-Metado 是一个**可嵌入、跨平台（Android / Windows / Linux）的 JavaScript 运行时**，配套**受治理的单文件插件打包格式**。插件用标准 JavaScript（ESM）编写，计算内核可用 WebAssembly，以带签名的单文件 `.mdl` 交付，由引擎加载执行。
+Metado 是一个**可嵌入、跨平台（Android / Windows / Linux）的 JavaScript 运行时**，配套**受治理的单文件插件打包格式**。插件用标准 JavaScript（ESM）编写，计算内核可用 WebAssembly，以带签名的单文件 `.mdl`（**二进制 ESM 模块树容器**）交付，由引擎加载执行。
 
 Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用户可设置的授予、领域相关的极细分权限、权限集机制，再加 **Android 式签名信任体系**（完整性验签 + 签名即身份 + 同签更新 + 同签名数据互通）。
 
@@ -20,12 +20,14 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 - 细粒度权限治理作为一等公民：请求 / 授予 / 执行三层语义
 - 接口约束（类型契约）加载期静态校验
 - Android 式签名体系：完整性验签、签名即稳定身份、同签更新、同签名数据互通
-- 单文件发布（Rollup 模式），多文件源码，标准工具链（esbuild）可参与构建
+- 单文件发布（**二进制模块树容器，零打包转换**），多文件源码
+- **生产可读可调试**：分发物保留真实模块结构与源码（无 minify/混淆/bundle 转换），堆栈指向真实文件与行号
 - CLI 开发环境与生产环境行为对齐（单一引擎核心），快速迭代与热重载
 
 ### 非目标
 
 - 任何自定义脚本语法 —— 插件就是标准 JS
+- 代码转换/最小化/混淆 —— 分发物零转换、零 minify
 - 引擎裁决"发布者可不可信" —— 信任决策在用户/宿主侧，引擎只验证不裁决
 - 插件之间跨插件调用（v1 不支持）
 - 交互式单步调试器（v1 只做热重载 + 轨迹观测）
@@ -37,7 +39,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ```
                      ┌──────────────────────────────────────────┐
                      │            引擎核心（唯一）                │
-                     │  Bundle/Manifest 解析│ 单元模型│ 类型系统    │
+                     │  容器/Manifest 解析│ 单元模型│ 类型系统    │
                      │  权限解析器 │ 签名验签 │ 轨迹观测(Trace)   │
                      └───┬──────────┬──────────┬──────────┬──────┘
                          │          │          │          │
@@ -62,12 +64,12 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 ### 4.1 插件形态
 
-插件 = **标准 ESM JavaScript 代码 + 结构化 manifest 元数据**，交付为一个签名单文件 bundle：
+插件 = **标准 ESM JavaScript 代码 + 结构化 manifest 元数据**，交付为一个签名的二进制单文件容器：
 
 ```
 plugin.mdl =
   签名信封（signer_pubkey, signature, algorithm）      §6
-  内容（manifest + 内联 ESM JS + base64 wasm）         §9
+  模块树容器（manifest + 索引 + ESM 模块文件 + wasm）  §9
 ```
 
 ### 4.2 入口单元（Unit）
@@ -105,8 +107,8 @@ export async function onMessage(input) { ... }
 ### 4.3 内部模块组织
 
 - 单元内可 `import` 本插件内部 helper 模块与纯 JS npm 包，**完全通用标准 ESM**
-- 构建时由打包步骤（esbuild 等，见 §9）bundle 进单文件
-- 内部模块不受权限治理、被 bundle 吞没，不暴露为可调用单元 —— 只有入口单元带契约与权限
+- 容器挂载为**模块文件系统**，boa 模块解析器按原始 `import "./helper.js"` 直接解析 —— **零打包、零转换**，模块图即文件树
+- 内部模块不受权限治理、不出现在 manifest 入口中，不暴露为可调用单元 —— 只有入口单元带契约与权限
 
 ### 4.4 类型契约（接口约束）
 
@@ -172,7 +174,7 @@ engine.define_permission_set("finance",  ["http.get.api.bank", "storage.read", "
 ```
 .mdl = header { magic, version, signer_pubkey, algorithm = "ed25519" }
      + signature（覆盖后续所有字节）
-     + payload（manifest + 内联 ESM + base64 wasm）
+     + payload（模块树容器：manifest + 索引 + 模块文件 + wasm 原始字节）
 ```
 
 - **`signer_id` = 公钥指纹**（如 sha256 截段），作为插件的稳定发布者身份
@@ -261,12 +263,15 @@ myplugin/
 
 ### 9.2 分发（单文件，签名）
 
-- `mdl build` 流程：ESM bundle（esbuild/rollup 参与或直接复用）→ wasm 编译内联（base64）→ 组装 manifest → **`mdl sign --key <file>` 签名** → 输出单文件 `plugin.mdl`
-- WASM base64 内联进同一文本容器（初版；如未来出现大负载瓶颈再升级二进制容器）
+- **容器格式**：二进制模块树容器 = 索引（入口表）+ 原样 payload（模块文件、wasm 原始字节）。含 manifest section、ESM 模块树、wasm 二进制。可压缩；索引支持快速定位
+- `mdl build` 流程：**组装容器**（把源码树原样装入，零转换/零 minify）→ **`mdl sign --key <file>` 签名** → 输出单文件 `plugin.mdl`
+- 模块级可读性不因容器格式受影响：加载后仍是文件树，堆栈指向真实路径与行号
+- 曾考虑的纯文本容器（base64 wasm / 转义）**放弃**：可读性需求在加载后的模块树层面，二进制容器更小、更快、免转义
 
 ### 9.3 生态复用（npm 包）
 
-- 纯 ES module JS 包可打包进插件（lodash-es、axios、zod 等），打包步骤对 `require()` 做 ESM 重写
+- 纯 ES module JS 包可拷入容器（lodash-es、axios、zod 等），模块原样保留
+- **不做自动 `require()`→ESM 重写**；CJS-only 包需作者在自有工具链中预转换（否则不支持）
 - 提供轻量 Node API shim（`Buffer`、`path`、`events`）
 - 依赖 Node 原生模块的包不可用，必须用宿主 API 替代（`metado.storage` / `metado.http`）
 
@@ -280,9 +285,9 @@ myplugin/
 ## 11. 开发环境（CLI）
 
 ```
-mdl build <plugin-dir> [--key <sign-key>]     # 打包 + 签名
+mdl build <plugin-dir> [--key <sign-key>]     # 组装模块树容器 + 签名
 mdl run     <plugin.mdl> [--grant http.get]    # std 宿主执行，可配置 grants 模拟生产
-mdl watch                                      # 监听源文件 → 增量重建 → 热重载 → 自动 rerun
+mdl watch                                      # 监听源文件 → 增量重建容器 → 热重载 → 自动 rerun
 mdl test                                       # 单元/集成测试（宿主 API 契约测试）
 mdl trace                                      # 执行轨迹观测
 mdl sign     <plugin.mdl> <key>                # 单独签名/验签
@@ -314,11 +319,11 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 
 本设计由多个子系统组成，实现按阶段推进：
 
-1. **引擎核心**：签名验签、bundle/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型（无 JS/WASM 执行）
-2. **JS 执行器**：boa 桥接、模块注入、值互转、事件循环集成
-3. **WASM 执行器**：wasmi 桥接、base64 加载、import 函数、fuel 计量
+1. **引擎核心**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型（无 JS/WASM 执行）
+2. **JS 执行器**：boa 桥接、模块系统挂载（容器文件树）、模块注入、值互转、事件循环集成
+3. **WASM 执行器**：wasmi 桥接、原始字节加载、import 函数、fuel 计量
 4. **内置能力集**：macro/能力框架 + http/storage/file/time/log/crypto（含 signer 命名空间）
-5. **CLI 工具（mdl）**：build（含 esbuild 打包与签名）/ run / watch / test / trace，std 宿主，npm 打包
+5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，std 宿主，npm 拷入
 6. **引擎进程 + IPC**：transport 抽象、capability message 路由、平台实现（Android/Win/Linux）
 7. **示例与契约测试**：行为对齐验证、CLI/生产对比测试
 
@@ -328,6 +333,6 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 - wasmtime（wasmi 镜像其 API，性能成为刚需时切换）
 - 跨插件调用
 - 零拷贝共享 buffer（`Bytes` 优化）
-- 二进制插件容器（wasm base64 内联体积成为问题时）
+- 压缩（容器初版可不压缩，体积成为问题时再启用，分节内透传）
 - 密钥轮换（同签更新缺失时的迁移路径，需升级签名 scheme 时再设计）
 - 句柄式宿主对象跨 WASM 沙箱（永久拒绝）
