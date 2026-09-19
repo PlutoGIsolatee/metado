@@ -67,6 +67,12 @@ impl SignedBundle {
         self.verify_with_key(&pubkey_bytes)
     }
 
+    /// 嵌入 header 的签名者公钥（Engine facade 等外部代码读身份用）
+    pub fn signer_pubkey(&self) -> [u8; 32] {
+        // header layout: magic(4) + version(2) + pubkey(32) + payload_len(8)
+        self.header[6..38].try_into().unwrap_or([0u8; 32])
+    }
+
     pub fn verify_with_key(&self, pubkey: &[u8; 32]) -> Result<(), String> {
         let verifying_key =
             VerifyingKey::from_bytes(pubkey).map_err(|e| format!("invalid key: {}", e))?;

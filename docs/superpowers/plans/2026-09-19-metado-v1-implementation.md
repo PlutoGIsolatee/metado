@@ -1513,7 +1513,7 @@ git commit -m "feat(engine): implement trace sink (§12.6)"
 **Interfaces:**
 - Produces: `Engine::new()`, `Engine::register_capability()`, `Engine::define_permission_set()`, `Engine::load_plugin()`, `Engine::grant()`, `Engine::invoke()`
 
-- [ ] **Step 1:** Write failing integration test
+- [x] **Step 1:** Write failing integration test
 
 ```rust
 // tests/engine_integration_test.rs
@@ -1527,8 +1527,8 @@ fn test_engine_create_and_register() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement engine facade
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement engine facade
 
 ```rust
 // crates/metado-engine/src/lib.rs
@@ -1543,6 +1543,9 @@ pub mod plugin;
 pub mod realm;
 pub mod trace;
 
+// 实现偏差: bundle.header 为私有 -> 新增 SignedBundle::signer_pubkey();
+// 偏移修正 [8..40] -> [6..38]; from_utf8 临时值借用修复;
+// 新增 Engine::activate(Pending->Active) 否则 invoke 永远拒绝；load_plugin 返回 () 或 &Plugin 改为 Result<(), String>
 pub use value::Value;
 pub use error::{ExecutionError, ErrorKind};
 pub use manifest::Manifest;
@@ -1627,8 +1630,8 @@ impl Engine {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/lib.rs
