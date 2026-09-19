@@ -419,51 +419,78 @@ payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store�
 - 提供轻量 Node API shim（`Buffer`、`path`、`events`）
 - 依赖 Node 原生模块的包不可用，必须用宿主 API 替代（`import { storage, http } from "@metado/runtime"`）
 
-## 11. 引擎-宿主交互（绝对独立进程）
+## 11. 引擎-宿主交互协议（绝对独立进程）
 
 ### 11.1 进程原则
 
 - 引擎**始终以独立进程/服务运行**：自洽、故障隔离（插件崩溃不拖垮宿主）、无宿主代码驻留（运行期）
 - 引擎产物 = 宿主开发者于构建期定制的独立镜像（§8.1）；宿主运行时**不往引擎进程内注入任何代码**
-- 引擎与宿主的唯一运行期交互 = IPC（管理方法面 + 回调面）
-- IPC transport 各平台实现：Android bound service、Win/Linux Unix domain socket
-- 线格式：**JSON-RPC 2.0**（v1；值传递原则下简单可调试，体积成问题时再二进制编码）
+- 引擎与宿主的唯一运行期交互 = 本协议（管理方法面 + 回调面）
 - 本地可信信道（bound service 绑定 / UDS peer 凭据），**引擎-宿主间不加密**：造假面不在本地管道，插件签名面才是外界信任边界
 
-### 11.2 管理方法面（host → engine）
+### 11.2 协议基础（帧 / 编码 / 会话）
 
-| 方法 | 语义 |
-|---|---|
-| `loadPlugin(bytes)` | 验签闸门 → 解析 → 静态检查 → 返回 `{plugin_id, signer_id, requested, lifecycle}` |
-| `grant / revoke(plugin_id, perms)` | 授予（granted ⊆ requested）、削减 |
-| `setLifecycle(plugin_id, mode)` | 设 effective 常驻模式（升级超出承诺由宿主负责先确认） |
-| `invoke(plugin_id, entry, value)` | 调入口，`Result<Value, ExecutionError>`；插件内排队（§7.6） |
-| `listPlugins / uninstall / purge` | 生命周期管理（uninstall 默认保留 storage） |
-| `registerPermissionSet(name, perms)` | 定义权限集 |
-| `setDomainConfig(ruleId, json)` | 领域规则运行时配置（白名单/配额/降级） |
-| `setActive(plugin_id, caps)` / 能力开关 | 引擎产物激活面调整（`available`） |
-| trace 订阅 | 流式轨迹开/关 |
+- **帧**（字节流 transport）：`[u32 BE 长度][消息字节]`；每条消息 = 一个完整 JSON-RPC 消息，流上自定界
+- **编码**：消息 = UTF-8 JSON；Value 序列化唯一特例 `Bytes → {"$bytes":"<base64>"}`（Json-Map/List 原样）——保持 JSON 兼容可调试；二进制线格式为推迟演进（§15）
+- **会话**：连接后 host 首帧 `hello {}`，引擎回 `{protocol:"metado/ipc/1", engine_version, apis:[]}`；无认证
+- **复用与并发**：请求-响应按 `id` 关联，宿主与引擎各自独立编号；v1 无跨消息取消（引擎自身限额中止）
+- **帧上限**：默认上限（如 64 MiB）防内存放大；`loadPlugin` 所需放大由引擎按需上调，超限拒绝
+
+### 11.3 管理方法面（host → engine）
+
+```
+hello {}                              → {protocol, engine_version, apis}
+loadPlugin {bytes}                    → {plugin_id, signer_id, requested, lifecycle}
+grant {plugin_id, perms}              → {}
+revoke {plugin_id, perms}             → {}
+setLifecycle {plugin_id, mode}        → {effective}
+invoke {plugin_id, entry, value}      → {value} | Err(ExecutionError)
+listPlugins {}                        → [{plugin_id, signer_id, lifecycle, requested, granted}]
+uninstall {plugin_id}                 → {}      # 保留 storage
+purge {plugin_id}                     → {}      # 连 storage 清除
+setActive {plugin_id, caps}           → {available}
+registerPermissionSet {name, perms}   → {}
+setDomainConfig {rule, config}        → {}
+subscribeTrace {filter?}              → {}      # 轨迹经 notify(evt=trace) 流出
+```
 
 - **引擎从不等待用户**：任何需人确认的动作（安装、resident-high、授权）= 宿主自己弹 UI → 事后调 RPC（grant/setLifecycle）
+- `invoke` 在插件内排队（§7.6）；`value = {value}` 或错误（11.5）
 
-### 11.3 回调面（engine → host）
+### 11.4 回调面（engine → host）
 
-| 回调 | 语义 |
-|---|---|
-| `dispatch(name, params, requestId)` → host 返回 Value/Error | **capability message**：app 驻留服务收到引擎路由的值，执行后 resolve 插件 promise（v1 单次 Request-Response，逐次请求） |
-| `notify(event)` | 事件流：`realmEvicted` / `quarantined(plugin_id)` / `pluginUpdated` / `pluginRemoved` |
+```
+dispatch {id, name, params}    # 引擎→宿主；宿主回 {id, result:{value}} 或 {id, error}
+notify {evt, data}             # 单发事件：realmEvicted / quarantined / pluginUpdated / pluginRemoved / trace
+```
 
-### 11.4 权威划分
+- `dispatch` = **capability message**（§8.4）：app 驻留服务收到引擎路由的值，应答后 resolve 插件 promise（v1 单次请求，逐次）
+- **dispatch 超时**：宿主应答期由引擎配置（可设），超时 → 原 `invoke` 以 `ExecutionError{kind=External}` 快败（防永久悬挂）
+- trace 事件按 filter（入口/权限/capability）订阅后经 notify 流出
+
+### 11.5 权威划分
 
 - **引擎 = 无主见执行者**：代码执行、权限裁决、生命周期、签名验签、沙箱、内置能力机制（模块在引擎内自给自足）
 - **宿主 = 决策与管理**：信任决策（安装/削减/升级确认）、管理配置（白名单/配额/密钥供给/能力开关）、app 驻留服务（经 capability message）、观测消费
 - 领域规则 v1 为引擎内配置驱动（setDomainConfig），不做宿主实时回调；将来需要宿主实时的走 `dispatch` 通道（§8.4）
 
-### 11.5 值、错误、信任线
+### 11.6 值、错误、信任线
 
-- 全链路同一值模型（§4.4）；RPC 序列化 JSON 兼容 + Bytes → `Uint8Array`
-- `ExecutionError { entry, kind, message }` 原样跨 RPC 回宿主
+- 全链路同一值模型（§4.4）+ **Bytes 包装**（11.2）
+- **命令集**：
+  - `loadPlugin` fail-fast 于验签/解析/静态检查（§9.2）
+- **错误码**：
+  - 标准 JSON-RPC：`-32700` 解析 / `-32600` 无效请求 / `-32601` 未知方法 / `-32602` 非法参数 / `-32603` 内部
+  - 引擎业务错：`-32000`，`error.data = {kind: invalid_plugin|verify|not_found|bad_state|denied|limit|internal, message}`
+  - 插件执行错：`-32001`，`error.data = ExecutionError{entry, kind: Runtime|Permission|Sandbox, message}`（Sandbox 含超限：fuel/容量/线程预算）
 - 插件签名信任不依赖 IPC（验签在引擎内、载荷进引擎前完成），宿主只管理"信不信该 signer"（§6）
+
+### 11.7 传输实现（transport）
+
+- 传输抽象最小面：`send(frame)` / `onFrame(msg)`；单向有序由字节流天然保证
+- 平台实现：Android bound service（Message/Parcel 承载帧）、Win/Linux Unix domain socket
+- **断线语义**：引擎 realm/插件/常驻状态保留（§7.5）；宿主重连后需重订阅 trace，重入安全
+- in-proc 通道：CLI/测试直接走同规格解析器（无字节流），保证行为对齐（§12.1）
 
 ## 12. 开发环境（CLI）
 
