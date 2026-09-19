@@ -1135,7 +1135,7 @@ git commit -m "feat(engine): implement capability framework (§8.1)"
 **Interfaces:**
 - Produces: `Container { manifest, files }`, `Container::from_bytes()`, `Container::read_file(path)`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/container_test.rs
@@ -1183,8 +1183,8 @@ fn test_path_traversal_blocked() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement container module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement container module
 
 ```rust
 // crates/metado-engine/src/container.rs
@@ -1239,8 +1239,8 @@ impl Container {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/container.rs
