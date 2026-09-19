@@ -292,7 +292,7 @@ metado/
 **Interfaces:**
 - Produces: `Value` enum, `try_from_js()` / `to_js()` conversion stubs (full in Phase 2)
 
-- [ ] **Step 1:** Write failing test for Value enum
+- [x] **Step 1:** Write failing test for Value enum
 
 ```rust
 // tests/value_test.rs
@@ -354,12 +354,12 @@ fn test_json_roundtrip() {
 }
 ```
 
-- [ ] **Step 2:** Run test to verify it fails
+- [x] **Step 2:** Run test to verify it fails
 
 Run: `cargo test --package metado-engine value_test`
 Expected: FAIL with "unresolved import" or "module not found"
 
-- [ ] **Step 3:** Write minimal implementation
+- [x] **Step 3:** Write minimal implementation
 
 ```rust
 // crates/metado-engine/src/value.rs
@@ -380,7 +380,11 @@ pub enum Value {
 
 impl Value {
     pub fn is_truthy(&self) -> bool {
-        !matches!(self, Value::Null | Value::Bool(false) | Value::Number(0.0) | Value::String(s) if s.is_empty())
+        match self {
+            Value::Null | Value::Bool(false) | Value::Number(0.0) => false,
+            Value::String(s) => !s.is_empty(),
+            _ => true,
+        }
     }
 
     pub fn as_f64(&self) -> Option<f64> {
@@ -422,12 +426,12 @@ impl Value {
 }
 ```
 
-- [ ] **Step 4:** Run test to verify it passes
+- [x] **Step 4:** Run test to verify it passes
 
 Run: `cargo test --package metado-engine value_test`
 Expected: PASS
 
-- [ ] **Step 5:** Commit
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/value.rs crates/metado-engine/src/lib.rs
