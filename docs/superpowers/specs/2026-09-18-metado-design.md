@@ -17,6 +17,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 - 跨平台（Android / Windows / Linux）可嵌入，引擎为独立进程/服务
 - 语言 = **标准 JS（ESM）**，可混合 WASM 计算内核，且两者高效进程内集成
+- **插件源码 = 合法 Node 项目**（除 API）：标准 npm 结构（package.json + node_modules）、Node 工具链直接可用；**唯一例外**——Node 核心 API（process/fs/net/child_process/require…）运行时不可用，一律以受治理的 metado 能力替代（仅白名单 shim：Buffer/path/events）
 - 细粒度权限治理作为一等公民：请求 / 授予 / 执行三层语义
 - **分级生命周期常驻治理**：声明 / 用户确认 / 可修改（resident-high / resident-low 默认 / cold），正确性不依赖内存态
 - 接口约束（类型契约）加载期静态校验
@@ -28,7 +29,8 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ### 非目标
 
 - 任何自定义脚本语法 —— 插件就是标准 JS
-- 代码转换/最小化/混淆 —— 分发物零转换、零 minify
+- 代码转换/最小化/混淆 —— 分发物零转换、零 minify（TS 编译推迟，见 §15）
+- TypeScript —— v1 源码 = 纯 ESM JS，.ts 不支持（推迟，见 §15）
 - 引擎裁决"发布者可不可信" —— 信任决策在用户/宿主侧，引擎只验证不裁决
 - 插件之间跨插件调用（v1 不支持）
 - 交互式单步调试器（v1 只做热重载 + 轨迹观测）
@@ -65,7 +67,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 ### 4.1 插件形态
 
-插件 = **标准 ESM JavaScript 代码 + 结构化 manifest 元数据**，交付为一个签名的二进制单文件容器：
+插件 = **标准 ESM JavaScript 代码 + 结构化 manifest 元数据**，源码侧是一个**合法 Node 项目**（除 API），交付为一个签名的二进制单文件容器：
 
 ```
 plugin.mdl =
@@ -335,17 +337,26 @@ metado-cli / 绑定    # 工具与宿主绑定
 
 ## 10. 打包与构建
 
-### 10.1 源码（多文件，标准 JS 结构）
+### 10.1 源码（合法 Node 项目，标准 JS 结构）
+
+插件源码是一个**合法 Node 项目**（除 API，§2）：结构、约定与工具链兼容 npm 生态，运行时 API 由 metado 治理能力面代替 Node 核心 API。
 
 ```
 myplugin/
-  mdl.toml              # manifest：name/version/permission/permission-set/units
+  package.json          # name/version/"type":"module"/exports
+  package-lock.json     # 依赖快照（可复现构建）
+  node_modules/         # npm install 产出，真实 npm 依赖
+  mdl.toml              # manifest：name/version/permission/permission-set/units/lifecycle
   src/
     on_message.js       # 标准 ESM：export async function onMessage(input){...}
     helpers/util.js     # 内部模块，自由组织
   wasm/
     transform.wasm      # 或 transform.wat/source（构建时编译）
 ```
+
+- 结构 = 标准 npm 项目：`npm install` 直接工作，编辑器/lint/LSP/bundler 全部可用
+- 唯一例外是运行时 API：**Node 核心内置模块不可用**（process/fs/net/child_process/require），一律以受治理的 metado 能力替代；仅白名单 shim（`Buffer`、`path`、`events`）
+- 运行时模块解析为 **Node 风格**：`exports` field 优先、`node_modules` 逐级查找（§9.1/阶段 2）
 
 ### 10.2 分发（单文件，签名）
 
@@ -356,6 +367,7 @@ myplugin/
 
 ### 10.3 生态复用（npm 包）
 
+- **插件就是合法 Node 项目**，npm 依赖是标准手段：`npm install` 产出 node_modules，`mdl build` 按 `package-lock.json` 快照把依赖拷入容器（可复现），不手动管理
 - 纯 ES module JS 包可拷入容器（lodash-es、axios、zod 等），模块原样保留
 - **不做自动 `require()`→ESM 重写**；CJS-only 包需作者在自有工具链中预转换（否则不支持）
 - 提供轻量 Node API shim（`Buffer`、`path`、`events`）
@@ -407,7 +419,7 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 本设计由多个子系统组成，实现按阶段推进：
 
 1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
-2. **JS 执行器**：boa 桥接、模块系统挂载（容器文件树）、模块注入、值互转、事件循环集成
+2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、模块注入、值互转、事件循环集成
 3. **WASM 执行器**：wasmi 桥接、原始字节加载、import 函数、fuel 计量
 4. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
 5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，std 宿主，npm 拷入
@@ -417,6 +429,7 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 ## 15. 明确推迟项
 
 - 交互式单步调试器（trace API 预留扩展点）
+- **TypeScript**：v1 源码 = 纯 ESM JS；`.ts` 编译暂不加入 `mdl build`（需先定编译器选型 swc-rs/esbuild、sourcemap 恢复 .ts 行号，并修订"零转换"承诺，契机再启）
 - wasmtime（wasmi 镜像其 API，性能成为刚需时切换）
 - 跨插件调用
 - 零拷贝共享 buffer（`Bytes` 优化）
