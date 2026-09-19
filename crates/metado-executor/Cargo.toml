@@ -1,0 +1,8 @@
+[package]
+name = "metado-executor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+metado-engine = { path = "../metado-engine" }
+boa_engine = { workspace = true }

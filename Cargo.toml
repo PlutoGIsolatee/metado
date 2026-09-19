@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/metado-engine",
+    "crates/metado-executor",
 ]
 
 [workspace.dependencies]
@@ -19,7 +20,9 @@ thiserror = "2.0.20"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 
 # --- Phase 2: JS executor (boa >= 0.19 renamed `boa` -> `boa_engine`) ---
-boa_engine = "0.22.0"
+# jsvalue-enum: NaN-boxing 在 Android/Termux (bionic ld) 不可用，运行时直接 panic
+#（见 boa_engine-0.22/src/value/inner/nan_boxed.rs）；更小内存占用但略慢。
+boa_engine = { version = "0.22.0", features = ["jsvalue-enum"] }
 
 # --- Phase 2/3/5: async runtime + HTTP capability ---
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "time", "io-util", "sync"] }

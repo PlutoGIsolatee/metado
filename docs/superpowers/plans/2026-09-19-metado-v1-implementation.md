@@ -1654,7 +1654,7 @@ git commit -m "feat(engine): implement Engine facade (§13)"
 **Interfaces:**
 - Produces: `JsEngine::new()`, `JsEngine::eval(code)`, `JsEngine::call(entry, args)`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/js_engine_test.rs
@@ -1683,11 +1683,14 @@ fn test_call_function() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement JsEngine
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement JsEngine
 
 ```rust
 // crates/metado-executor/src/engine.rs
+// 平台修正: Termux/aarch64 (bionic ld) 与 NaN-boxing 冲突 -> 启用 boa_engine 的 `jsvalue-enum` feature
+// 字符串入参: JsValue 无 From<&str>, 用 JsString::from(...).into()
+use boa_engine::string::JsString;
 use boa_engine::{Context, Source};
 
 pub struct JsEngine {
@@ -1744,8 +1747,8 @@ fn value_to_js(val: &metado_engine::Value) -> boa_engine::JsValue {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-executor/src/engine.rs
