@@ -1878,7 +1878,7 @@ git commit -m "feat(executor): implement Node-style module resolution"
 **Interfaces:**
 - Produces: `VirtualModule { exports, granted }`, `VirtualModule::build(available, granted)`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/virtual_module_test.rs
@@ -1907,8 +1907,8 @@ fn test_missing_available_not_exported() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement virtual module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement virtual module
 
 ```rust
 // crates/metado-executor/src/virtual_module.rs
@@ -1929,7 +1929,11 @@ impl VirtualModule {
 
     pub fn has_export(&self, name: &str) -> bool {
         // 导出存在性 = available (requested ∩ compiled ∩ active)
-        self.available.iter().any(|a| a.starts_with(&format!("{}.", name)) || a == name)
+        // 计划实现方向反了: `a.starts_with("get.")` 对 `http.get` 恒 false。
+        // 修正: 命名空间前缀 或 final 方法段 等于 name
+        self.available.iter().any(|a| {
+            a == name || a.starts_with(&format!("{}.", name)) || a.ends_with(&format!(".{}", name))
+        })
     }
 
     pub fn is_granted(&self, capability: &str) -> bool {
@@ -1938,8 +1942,8 @@ impl VirtualModule {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-executor/src/virtual_module.rs

@@ -3,6 +3,8 @@
 
 pub mod engine;
 pub mod module_loader;
+pub mod virtual_module;
 
 pub use engine::JsEngine;
 pub use module_loader::ModuleLoader;
+pub use virtual_module::VirtualModule;
