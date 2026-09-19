@@ -36,7 +36,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 - 引擎裁决"发布者可不可信" —— 信任决策在用户/宿主侧，引擎只验证不裁决
 - 插件之间跨插件调用（v1 不支持）
 - 交互式单步调试器（v1 只做热重载 + 轨迹观测）
-- 句柄式宿主对象跨入 WASM 沙箱（永久不变量）
+- 句柄式宿主对象跨入 WASM 计算内核（永久不变量）
 - 密钥轮换（同签更新缺失时的迁移路径，需升级签名 scheme 时再设计）
 
 ## 3. 架构总览
@@ -121,24 +121,27 @@ export async function boot() { ... }
 
 ### 4.4 值模型（Value Model）
 
-- 引擎统一值表示：`Null / Bool / Number / String / Bytes / List / Json-Map`（JSON 兼容 + Bytes）—— 值跨 JS / WASM / 宿主任意边界同一表示
+- 引擎统一值表示：`Null / Bool / Number / String / Bytes / List / Json-Map`（JSON 兼容 + Bytes）—— 值跨 **JS / 宿主 / IPC** 三条边界同一表示；WASM 内核不直接承载值模型，经 JS 桥接标量/线性内存（§4.5）
 - 入口只传值：宿主 invoke 传 Value，JS 侧映射标准 JS 值；JS 侧无法序列化的对象（函数/句柄/循环引用）不跨边界
 - **无 manifest 级类型声明**：接口由 JS 语言自身与宿主侧期望承担；"接口是什么"是文档/测试层的事（`mdl test`），引擎不掺和
 - Bytes 为明确值类型：跨 IPC 与 `Uint8Array`/`ArrayBuffer` 对应
-- WASM 内核的类型化 IO 是内核自身契约（§4.5），不由 manifest 声明
+- WASM 内核的 IO 契约 = **端口带**（JS 标量 / 线性内存 Bytes），属 JS 侧调用方约定，不由 manifest 声明（§4.5）
 
-### 4.5 WASM 计算内核（能力契约；**实现推迟 v1 后**）
+### 4.5 WASM 计算内核（内置 API；**实现推迟 v1 后**）
 
-> **句柄/对象身份永不跨入 WASM 沙箱。** WASM 只做纯函数式计算内核，由插件 JS 实例化调用。
+> **WASM = 内置 API（`metado-cap-wasm`）**，与 http/storage 同待遇；它住在插件 realm 内，由插件 JS 编排，跨 `.mdl` 与 npm 交付的资源格式携带（wasm/ 原样字节）。**值进出无句柄/对象身份**——纯函数式计算承载面，状态留在 JS 侧。
 
-- **WASM = 内置能力 `metado-cap-wasm`**：与 http/storage 同待遇，插件经能力治理使用；它不是独立入口
-- 容器内 .wasm 字节由插件 JS 加载并实例化，JS 负责编排（`onMessage` 里调内核做数值计算）
-- 进出值只能是普通值（线性内存搬运）：无句柄、无对象身份、无生命周期；需要长期状态的场景放 JS 层
-- fuel 计量约束内核执行；离线可测、沙箱最紧，唯一资源管控 = fuel + 输入大小
-- **v1 纯 JS**：引擎无 WASM 运行器；较重计算走宿主定制能力 / capability message，JS 防失控用 boa 执行预算（interrupt / 递归 / 栈限制）
-- **v1 后实现**：wasmi 桥接（纯 Rust 解释器、内置 fuel、跨平台零障碍）、容器字节加载、插件 JS 实例化调用、值进出无句柄；性能成为刚需时切 wasmtime（API 预留镜像）
-- JS 面 = 标准 `WebAssembly` 命名空间（Web Platform 形状，§8.5）：boa 若自带支持则复用；否则引擎自托管 wasm 运行器提供该全局；能力缺失时全局为桩/缺失
-- 加载路径为开放实现点（该能力实现时核验，§14）
+- **JS 双面形状（同一实现内核）**：
+  - **标准 `WebAssembly` 命名空间（Node 对齐）**：`Module / Instance / Memory / Table / Global` + 错误类型 `CompileError / LinkError / RuntimeError` + `compile / validate / instantiate`——wasm-bindgen / wit-bindgen 等**自动胶水**路径（胶水自读字节 + `instantiate(bytes, imports)`）
+  - **直接 `.wasm` 模块导入（WASM esm-integration 草案）**：`import { add } from "./transform.wasm"`，named exports = wasm exports——对齐 Vite 8.1 作者工作流 / 浏览器 / Node 未来（草案语义细节为 §14 锁定项）
+- **字节获取**：胶水路径经 vfs/file 资源读（`file.read("wasm/transform.wasm") → Bytes`，Node 等价职 `fs.readFile`）；手工路径直接 `import` .wasm（模块加载器按模块类型解析）
+- **权限 = 可用性门**：无独立权限名；`WebAssembly` 命名空间可导入 / `.wasm` 模块类型可用 = 已授（`available`），调用不逐次裁决
+- **执行预算统一**：内核执行计入**同一执行预算**（JS interrupt + 内核 fuel 一个资源视图），防失控、决定论、离线可测
+- **错误映射（§9.2）**：WASM trap = `PluginError`（JS 可捕获，realm 存活）；fuel 耗尽 = `Fault`（引擎判 realm，§7）
+- **WASI 永久排除**（§15）：无 OS 接口面，与无 syscall / 值进出无句柄一致
+- **v1 纯 JS**：引擎无 WASM 运行器；较重计算走宿主定制能力 / capability message，JS 防失控用执行预算
+- **v1 后实现**：boa 自带 WebAssembly 则复用标准面；否则引擎自托管运行器（wasmi 桥接，纯 Rust 解释器、内置 fuel、跨平台零障碍）；性能成为刚需时切 wasmtime
+- 引擎侧运行器与 Node 侧语义对齐为 §14 核验项
 
 ## 5. 权限模型（核心）
 
@@ -324,7 +327,7 @@ metado-cli / 绑定    # 引擎工具链与宿主 IPC 绑定
   - 引擎（boa）：模块加载器把该 specifier 解析为**内置虚拟模块**，按当前 realm 授权视图提供导出
   - Node（开发/测试）：解析为真实 npm 包，同一 specifier、单一源码双运行时
 - 插件写法：`import { http, storage, metado } from "@metado/runtime"`
-- **未授权绑定不存在**：realm 授权视图只含 `granted ∩ available`，访问未授权项快速失败（两种运行时同一语义）
+- **导出存在性 = 静态面、调用放行 = 动态面**：导出按 `available`（requested ∩ compiled ∩ active）静态裁剪；`granted` 运行时可削减，导出不随每次 revoke 重建 realm——已授后被削的调用走运行期 `PermissionDenied`（reject promise，两种运行时同一语义，§9.2）
 - **载荷传递 = 整值 + 容量上限**（v1 不支持流式宿主 API，§15）：能力入参出参为完整 Value；实施默认 + 宿主 domain rules 配额约束 Bytes/元素上限，超限 = `ExecutionError{kind=limit}`；大 blob 尽量留在引擎内（内置 storage 不跨 IPC），需逐期诱导增量时为推迟的流式能力后置
 - 「无 import 样板」的自动绑定注入**放弃**（Node 下不存在自由标识符注入，统一 import 才能保证单源码双运行时）
 
@@ -349,18 +352,27 @@ metado-cli / 绑定    # 引擎工具链与宿主 IPC 绑定
 ### 9.1 执行
 
 - **入口 = JS async 导出函数（input → output）**：boa 驱动，引擎单一事件循环推进 job queue
-- **WASM 计算内核由插件 JS 加载实例化**（§4.5）：fuel 计量、值进出、不单独作为入口
+- **WASM 计算内核 = 内置 API**（§4.5，实现推迟）：标准 `WebAssembly` 命名空间 + 直接 `.wasm` 导入双面，同一实现内核，执行计入同一预算，错误映射见 §9.2
 - 宿主按名调用入口：`plugin.invoke(entry_name, value)`
-- 值边界统一：值跨 JS/WASM/宿主任意边界使用同一套引擎值表示（§4.4）
+- 值边界统一：值跨 JS / 宿主 / IPC 使用同一套引擎值表示（§4.4）
 
 ### 9.2 错误处理
 
-**一概短路中止，无错误作为值的传播。**
+**边界守卫：`invoke` 结果永远是「成功 Value」或「`ExecutionError`」，错误本体不入值模型**（值模型无 Error 类型，输出契约纯 JSON 兼容值）。插件期待的"业务失败"用 JS try/catch + 返回约定结构（如 `{ok:false, code, message}`，仅约定，不新增 API）。
 
-- 加载/静态期错误（格式非法、签名无效、权限声明非法、引用未授权 API、权限集未定义）在 `load_plugin` 时 fail-fast
-- 运行期错误 → 结构化 `ExecutionError { entry, kind: Runtime|Permission|Sandbox, message }`，由宿主决定处置
-- 沙箱/环境错误（fuel 耗尽、WASM trap、序列化失败）永远中止
-- 插件作者需要"失败即结果"的场景，在 JS 层用 try/catch 自行消化
+- **载荷/静态期错误**（格式非法、签名无效、权限声明非法、权限集未定义、静态导入 `available` 之外的能力导出 = ESM 链接失败）→ `load_plugin` fail-fast；管理面（load / 管理 RPC）失败 = JSON-RPC error 对象，与 invoke 分线
+- **运行期错误** = `ExecutionError { entry, kind, message }`——kind 四故障域；**引擎自动判 realm 存亡，宿主只判业务处置**：
+
+| kind | 实例 | realm | 宿主处置 |
+|---|---|---|---|
+| `PluginError` | JS 抛错 / unhandled rejection / WASM trap | 存活 | 展示 / 重试 |
+| `PermissionDenied` | granted 缺 / domain rule 拒（revoke 后调用、动态 import 兜底） | 存活 | 提示补授 |
+| `CapabilityError` | storage 写失败 / http 5xx / app 侧 capability message 失败 | 存活 | 按能力处置 |
+| `Fault` | fuel 耗尽 / 序列化失败 / 容量超限 | **引擎判定**（fuel→quarantine §7；序列化/容量→存活） | 只收 `notify` |
+
+- **权限拒绝的 JS 形状统一**：能力函数返回 promise，`PermissionDenied` 一律 reject 该 promise（boa 与 Node 同一）；缺权 ≠ 缺导出——导出照 `available`，调用才裁决（§8.5）
+- 沙箱判定归属引擎：fuel/trap 经 §7 quarantine 通知宿主，宿主不判 recover
+- 错误事件进 trace（含 requested vs granted 上下文）
 
 ## 10. 打包与构建
 
@@ -419,78 +431,51 @@ payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store�
 - 提供轻量 Node API shim（`Buffer`、`path`、`events`）
 - 依赖 Node 原生模块的包不可用，必须用宿主 API 替代（`import { storage, http } from "@metado/runtime"`）
 
-## 11. 引擎-宿主交互协议（绝对独立进程）
+## 11. 引擎-宿主交互（绝对独立进程）
 
 ### 11.1 进程原则
 
 - 引擎**始终以独立进程/服务运行**：自洽、故障隔离（插件崩溃不拖垮宿主）、无宿主代码驻留（运行期）
 - 引擎产物 = 宿主开发者于构建期定制的独立镜像（§8.1）；宿主运行时**不往引擎进程内注入任何代码**
-- 引擎与宿主的唯一运行期交互 = 本协议（管理方法面 + 回调面）
+- 引擎与宿主的唯一运行期交互 = IPC（管理方法面 + 回调面）
+- IPC transport 各平台实现：Android bound service、Win/Linux Unix domain socket
+- 线格式：**JSON-RPC 2.0**（v1；值传递原则下简单可调试，体积成问题时再二进制编码）
 - 本地可信信道（bound service 绑定 / UDS peer 凭据），**引擎-宿主间不加密**：造假面不在本地管道，插件签名面才是外界信任边界
 
-### 11.2 协议基础（帧 / 编码 / 会话）
+### 11.2 管理方法面（host → engine）
 
-- **帧**（字节流 transport）：`[u32 BE 长度][消息字节]`；每条消息 = 一个完整 JSON-RPC 消息，流上自定界
-- **编码**：消息 = UTF-8 JSON；Value 序列化唯一特例 `Bytes → {"$bytes":"<base64>"}`（Json-Map/List 原样）——保持 JSON 兼容可调试；二进制线格式为推迟演进（§15）
-- **会话**：连接后 host 首帧 `hello {}`，引擎回 `{protocol:"metado/ipc/1", engine_version, apis:[]}`；无认证
-- **复用与并发**：请求-响应按 `id` 关联，宿主与引擎各自独立编号；v1 无跨消息取消（引擎自身限额中止）
-- **帧上限**：默认上限（如 64 MiB）防内存放大；`loadPlugin` 所需放大由引擎按需上调，超限拒绝
-
-### 11.3 管理方法面（host → engine）
-
-```
-hello {}                              → {protocol, engine_version, apis}
-loadPlugin {bytes}                    → {plugin_id, signer_id, requested, lifecycle}
-grant {plugin_id, perms}              → {}
-revoke {plugin_id, perms}             → {}
-setLifecycle {plugin_id, mode}        → {effective}
-invoke {plugin_id, entry, value}      → {value} | Err(ExecutionError)
-listPlugins {}                        → [{plugin_id, signer_id, lifecycle, requested, granted}]
-uninstall {plugin_id}                 → {}      # 保留 storage
-purge {plugin_id}                     → {}      # 连 storage 清除
-setActive {plugin_id, caps}           → {available}
-registerPermissionSet {name, perms}   → {}
-setDomainConfig {rule, config}        → {}
-subscribeTrace {filter?}              → {}      # 轨迹经 notify(evt=trace) 流出
-```
+| 方法 | 语义 |
+|---|---|
+| `loadPlugin(bytes)` | 验签闸门 → 解析 → 静态检查 → 返回 `{plugin_id, signer_id, requested, lifecycle}` |
+| `grant / revoke(plugin_id, perms)` | 授予（granted ⊆ requested）、削减 |
+| `setLifecycle(plugin_id, mode)` | 设 effective 常驻模式（升级超出承诺由宿主负责先确认） |
+| `invoke(plugin_id, entry, value)` | 调入口，`Result<Value, ExecutionError>`；插件内排队（§7.6） |
+| `listPlugins / uninstall / purge` | 生命周期管理（uninstall 默认保留 storage） |
+| `registerPermissionSet(name, perms)` | 定义权限集 |
+| `setDomainConfig(ruleId, json)` | 领域规则运行时配置（白名单/配额/降级） |
+| `setActive(plugin_id, caps)` / 能力开关 | 引擎产物激活面调整（`available`） |
+| trace 订阅 | 流式轨迹开/关 |
 
 - **引擎从不等待用户**：任何需人确认的动作（安装、resident-high、授权）= 宿主自己弹 UI → 事后调 RPC（grant/setLifecycle）
-- `invoke` 在插件内排队（§7.6）；`value = {value}` 或错误（11.5）
 
-### 11.4 回调面（engine → host）
+### 11.3 回调面（engine → host）
 
-```
-dispatch {id, name, params}    # 引擎→宿主；宿主回 {id, result:{value}} 或 {id, error}
-notify {evt, data}             # 单发事件：realmEvicted / quarantined / pluginUpdated / pluginRemoved / trace
-```
+| 回调 | 语义 |
+|---|---|
+| `dispatch(name, params, requestId)` → host 返回 Value/Error | **capability message**：app 驻留服务收到引擎路由的值，执行后 resolve 插件 promise（v1 单次 Request-Response，逐次请求） |
+| `notify(event)` | 事件流：`realmEvicted` / `quarantined(plugin_id)` / `pluginUpdated` / `pluginRemoved` |
 
-- `dispatch` = **capability message**（§8.4）：app 驻留服务收到引擎路由的值，应答后 resolve 插件 promise（v1 单次请求，逐次）
-- **dispatch 超时**：宿主应答期由引擎配置（可设），超时 → 原 `invoke` 以 `ExecutionError{kind=External}` 快败（防永久悬挂）
-- trace 事件按 filter（入口/权限/capability）订阅后经 notify 流出
-
-### 11.5 权威划分
+### 11.4 权威划分
 
 - **引擎 = 无主见执行者**：代码执行、权限裁决、生命周期、签名验签、沙箱、内置能力机制（模块在引擎内自给自足）
 - **宿主 = 决策与管理**：信任决策（安装/削减/升级确认）、管理配置（白名单/配额/密钥供给/能力开关）、app 驻留服务（经 capability message）、观测消费
 - 领域规则 v1 为引擎内配置驱动（setDomainConfig），不做宿主实时回调；将来需要宿主实时的走 `dispatch` 通道（§8.4）
 
-### 11.6 值、错误、信任线
+### 11.5 值、错误、信任线
 
-- 全链路同一值模型（§4.4）+ **Bytes 包装**（11.2）
-- **命令集**：
-  - `loadPlugin` fail-fast 于验签/解析/静态检查（§9.2）
-- **错误码**：
-  - 标准 JSON-RPC：`-32700` 解析 / `-32600` 无效请求 / `-32601` 未知方法 / `-32602` 非法参数 / `-32603` 内部
-  - 引擎业务错：`-32000`，`error.data = {kind: invalid_plugin|verify|not_found|bad_state|denied|limit|internal, message}`
-  - 插件执行错：`-32001`，`error.data = ExecutionError{entry, kind: Runtime|Permission|Sandbox, message}`（Sandbox 含超限：fuel/容量/线程预算）
+- 全链路同一值模型（§4.4）；RPC 序列化 JSON 兼容 + Bytes → `Uint8Array`
+- `ExecutionError { entry, kind, message }` 原样跨 RPC 回宿主
 - 插件签名信任不依赖 IPC（验签在引擎内、载荷进引擎前完成），宿主只管理"信不信该 signer"（§6）
-
-### 11.7 传输实现（transport）
-
-- 传输抽象最小面：`send(frame)` / `onFrame(msg)`；单向有序由字节流天然保证
-- 平台实现：Android bound service（Message/Parcel 承载帧）、Win/Linux Unix domain socket
-- **断线语义**：引擎 realm/插件/常驻状态保留（§7.5）；宿主重连后需重订阅 trace，重入安全
-- in-proc 通道：CLI/测试直接走同规格解析器（无字节流），保证行为对齐（§12.1）
 
 ## 12. 开发环境（CLI）
 
@@ -574,7 +559,7 @@ let out = plugin.invoke("onMessage", value).await?;
 
 - **`@metado/runtime` 导出清单**：按 §8.5 API 风格原则逐一对照 Web/Node 约定，确定 http/storage/vfs/file/time/log/crypto/custom 的初版导出形状；锁定前不进入阶段 2 实施
 - **boa 对 Web 类型/约定的支持面核验**（URL/Blob/TextEncoder/fetch 语义在 boa 下的现实缺口），反向约束导出形状选择
-- **boa 的 WebAssembly 支持面**（实现 `metado-cap-wasm` 前核验）：决定复用标准 `WebAssembly` 全局还是引擎自托管 wasm 运行器
+- **`metado-cap-wasm` 实现前核验**：boa 的 WebAssembly 支持面（复用标准面 vs 引擎自托管运行器，§4.5）；**WASM esm-integration 草案语义细节**（named exports / global 解开 / default 语义，参照 Vite 8.1 与 Node 实现收敛）；Node 侧 `.wasm` import 的 parity 路径（Node 实验支持 vs 作者经 Vite，为 `@metado/runtime` Node 供给决策）；`instantiateStreaming` 是否纳入双面
 
 1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**（无 JS 执行）
 2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成、**执行预算**（interrupt/递归/栈限制）
@@ -589,10 +574,10 @@ let out = plugin.invoke("onMessage", value).await?;
 - 交互式单步调试器（trace API 预留扩展点）
 - **Node 运行/测试包（推后）**：`@metado/runtime` 的 Node 侧真实供给 + `metado-node`（napi-rs 链 `metado-core` 的完整等价后端，真实权限裁决同源 Rust）、`@metado/testing`。**v1 不做**（纯 JS fallback 也不做）：需每平台原生构建矩阵 + V8/boa 语义对齐（由阶段 6 契约测试兜底）；但「能力 API = `@metado/runtime` 模块统一规格」的形态 v1 即遵循，引擎侧先行供给
 - **TypeScript**：v1 源码 = 纯 ESM JS；`.ts` 编译暂不加入 `mdl build`（需先定编译器选型 swc-rs/esbuild、sourcemap 恢复 .ts 行号，并修订"零转换"承诺，契机再启）
-- **WASM 计算内核（`metado-cap-wasm`）**：能力契约已定（§4.5），**v1 不实现**——wasmi 桥接、容器字节加载、插件 JS 实例化调用、fuel 计量、值进出无句柄，性能成为刚需时切 wasmtime
+- **WASM 计算内核（`metado-cap-wasm`，内置 API）**：能力契约已定（§4.5），**v1 不实现**——标准 `WebAssembly` 命名空间 + 直接 `.wasm` 导入（esm-integration 草案）双面，同一实现内核、同一执行预算；**WASI 永久排除**（无 OS 接口面，与无 syscall / 值进出无句柄一致）；wasmtime 留作性能刚需时切换
 - 跨插件调用
 - 零拷贝共享 buffer（`Bytes` 优化）
 - 压缩（容器初版可不压缩，体积成为问题时再启用，分节内透传）
 - 密钥轮换（同签更新缺失时的迁移路径，需升级签名 scheme 时再设计）
-- 句柄式宿主对象跨 WASM 沙箱（永久拒绝）
+- 句柄式宿主对象跨 WASM 计算内核（永久拒绝）
 - **流式宿主 API**：大载荷增量传输（分块 slice + 背压 + 取消 + 途中错误/生命周期）；v1 以整值 + 容量上限（§8.5、§5.2）替代，进度/推送经 notify；待零拷贝共享 buffer 与 boa 的 ReadableStream 支持面核验（§14）后以显式 opt-in 能力形状落地
