@@ -1019,7 +1019,7 @@ git commit -m "feat(engine): implement permission resolver (§5)"
 **Interfaces:**
 - Produces: `CapabilitySet` trait, `CapabilityRegistry`, `CapabilityMeta { permissions, exports }`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/capability_test.rs
@@ -1068,8 +1068,8 @@ fn test_all_exports() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement capability module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement capability module
 
 ```rust
 // crates/metado-engine/src/capability.rs
@@ -1117,8 +1117,8 @@ impl CapabilityRegistry {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/capability.rs
