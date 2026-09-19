@@ -8,4 +8,5 @@ pub mod manifest;
 pub mod permission;
 pub mod plugin;
 pub mod signature;
+pub mod trace;
 pub mod value;

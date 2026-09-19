@@ -1407,7 +1407,7 @@ git commit -m "feat(engine): implement plugin lifecycle state machine (§7)"
 **Interfaces:**
 - Produces: `TraceSink`, `TraceEvent` enum, `TraceSink::record()`, `TraceSink::events()`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/trace_test.rs
@@ -1445,8 +1445,8 @@ fn test_filter_by_event_type() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement trace module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement trace module
 
 ```rust
 // crates/metado-engine/src/trace.rs
@@ -1466,7 +1466,7 @@ pub enum TraceEvent {
         capability: String,
         passed: bool,
     },
-    Value流转 {
+    ValueFlow { // 计划原名 `Value流转`，中文标识符不合理改用英文
         direction: String, // "in" or "out"
         size_hint: usize,
     },
@@ -1495,8 +1495,8 @@ impl TraceSink {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/trace.rs
