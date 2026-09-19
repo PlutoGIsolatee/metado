@@ -1257,7 +1257,7 @@ git commit -m "feat(engine): implement ZIP container reader (§10.2)"
 **Interfaces:**
 - Produces: `PluginState` enum, `Plugin { id, signer_id, manifest, state, realm }`, `Plugin::load()`, `Plugin::transition()`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/plugin_test.rs
@@ -1324,8 +1324,8 @@ fn test_uninstall_from_any_state() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement plugin module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement plugin module
 
 ```rust
 // crates/metado-engine/src/plugin.rs
@@ -1389,11 +1389,11 @@ impl Plugin {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
-git add crates/metado-engine/src/plugin.rs crates/metado-engine/src/realm.rs
+git add crates/metado-engine/src/plugin.rs # realm.rs 计划未定义接口，按 YAGNI 跳过
 git commit -m "feat(engine): implement plugin lifecycle state machine (§7)"
 ```
 
