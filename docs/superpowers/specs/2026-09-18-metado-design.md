@@ -263,28 +263,55 @@ absent → installing（验签，记录 plugin_id + signer 指纹）→ installe
 - **插件级单线程**：同一插件同一时刻仅一个 invoke，任务排队（head-of-line 由插件自身 await 行为承担）
 - **跨插件并行**：独立 realm → 相互隔离、可并行；v1 单线程协作调度多 realm，将来 realm+任务队列移入 worker 线程是内部优化，对 API 无感
 
-## 8. 宿主能力与自定义能力
+## 8. 宿主能力与能力框架（SDK 构建）
 
-### 8.1 内置能力集（capability set）
+### 8.1 引擎 = 平台 + 能力框架（按需构建实现）
 
-- 引擎进程自带丰富内置能力，按能力集组织，宿主按需组合构建
-- Rust 侧用宏/trait 声明式定义：`#[capability]` / `impl CapabilitySet`，定义能力名（对应权限名）与实现
-- 初版内置：`http / storage / vfs / file / time / log / crypto`（storage/vfs 支持 signer 命名空间）
+- **定制构建定位**：每个宿主构建自己的引擎进程镜像（源码构建），进程隔离保留（§11）
+- **crate 布局**（feature 矩阵的答案）：
 
-### 8.2 自定义能力（capability message）
+```
+metado-engine        # 核心 crate：能力框架开放、单元模型、权限、执行器、值类型
+metado-cap-http      # 内置能力 = 独立 crate/feature，按需取舍
+metado-cap-storage   #   各自的重依赖只进需要它的构建
+metado-cap-...       #   storage/vfs/file/time/log/crypto
+metado-cli / 绑定    # 工具与宿主绑定
+```
+
+- 宿主：`default-features = false, features = ["metado-cap-storage"]` + 自研能力 crate，组合矩阵按 crate 隔离而非 feature 网格
+- **开放能力契约（源码级扩展性）**：`#[metado::capability(set = "...")]` 是导出给宿主 crate 的公开宏 / `impl CapabilitySet` trait，一个 impl 产出——权限名表 + 宿主函数集 + JS 模块绑定 + trace 元数据 + IPC 路由描述 + 领域规则钩子
+- 宿主自研能力与内置能力**完全同待遇**：最小权限注入、运行时裁决、CLI trace、行为对齐
+- 双层裁剪：**编译期 features** 消除重依赖（TLS/crypto 等），**运行时 `.with()`** 组合激活；`available = registered ∩ compiled`
+
+### 8.2 内置能力集（built-in capability sets）
+
+- 独立 crate/feature：`http / storage / vfs / file / time / log / crypto`（storage/vfs 支持 signer 命名空间）
+- 初版即采用"默认零依赖最小核 + 宿主按需叠加"的构建方式
+
+### 8.3 三类能力分工
+
+| 层 | 位置 | 用途 |
+|---|---|---|
+| 内置能力集 | metado 仓库，宿主 features 选择 | http/storage/vfs/crypto 等通用能力 |
+| **宿主源码级能力集** | 宿主 crate，`#[capability]` | 宿主定制的原生能力，随引擎镜像进引擎进程 |
+| capability message（8.4） | 跨 IPC | 真正住在 app 进程的服务（UI 等），引擎路由过去 |
+
+- 宿主源码级能力**默认原生运行于引擎进程**；需要 app 侧参与时，其实现可把调用转发为 capability message（引擎→app）
+
+### 8.4 自定义能力（capability message）
 
 - 应用定制能力（UI、业务服务）以**类型化能力消息**提供，不走函数调用/句柄
 - 插件调用：`const r = await metado.custom("ui.alert", {title, body})`
 - 引擎把值路由给应用订阅的 capability channel；应用执行后可选返回一个值 → resolve 为 promise，插件 `await` 继续
 - 边界纪律：跨进程永远传值，不传句柄；每类 message 有 schema，可版本化
 
-### 8.3 JS 侧 API 访问面
+### 8.5 JS 侧 API 访问面
 
 - **内置能力**：授权集内的能力函数作为**模块绑定**自动注入每个单元作用域（如 `http.get(...)` 直接可用），无需 import 样板
 - **引擎全局对象 `metado`**：唯一的保留全局，承载引擎运行设施（`metado.log`、`metado.abort`、权限自省）与自定义能力派发（`metado.custom`）
 - 未授权的绑定不存在 → 访问即快速失败；两种访问风格都经过同一个权限解析器
 
-### 8.4 HostApi 抽象
+### 8.6 HostApi 抽象
 
 `HostApi` trait 是引擎与宿主能力的唯一接口。CLI 的 std 宿主与生产宿主都实现它，保证行为一致。
 
@@ -336,10 +363,10 @@ myplugin/
 
 ## 11. 进程模型与通信
 
-- 引擎为独立进程/服务：故障隔离（插件崩溃不拖垮宿主）、宿主语言解耦、沙箱升级路径
+- 引擎为独立进程/服务，**镜像由宿主定制构建**（§8.1）：故障隔离（插件崩溃不拖垮宿主）、宿主语言解耦、沙箱升级路径
 - IPC transport 抽象层各平台实现：Android bound service、Win/Linux Unix domain socket
 - 协议线格式：**JSON-RPC 2.0**（v1 默认；值传递原则下简单可调试，若体积成为问题再引入二进制编码）
-- 协议边界均为值传递；通用能力内置（零 IPC），自定义能力走 capability message
+- 协议边界均为值传递；宿主源码级能力原生运行于引擎内（零 IPC），app 侧服务走 capability message
 
 ## 12. 开发环境（CLI）
 
@@ -379,13 +406,13 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 
 本设计由多个子系统组成，实现按阶段推进：
 
-1. **引擎核心**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型（无 JS/WASM 执行）
+1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
 2. **JS 执行器**：boa 桥接、模块系统挂载（容器文件树）、模块注入、值互转、事件循环集成
 3. **WASM 执行器**：wasmi 桥接、原始字节加载、import 函数、fuel 计量
-4. **内置能力集**：macro/能力框架 + http/storage/file/time/log/crypto（含 signer 命名空间）
+4. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
 5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，std 宿主，npm 拷入
 6. **引擎进程 + IPC**：transport 抽象、capability message 路由、平台实现（Android/Win/Linux）
-7. **示例与契约测试**：行为对齐验证、CLI/生产对比测试
+7. **示例与契约测试**：宿主自研能力示例（源码级扩展性验证）、行为对齐验证、CLI/生产对比测试
 
 ## 15. 明确推迟项
 
