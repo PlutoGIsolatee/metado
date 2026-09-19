@@ -3,10 +3,12 @@
 
 pub mod budget;
 pub mod engine;
+pub mod executor;
 pub mod module_loader;
 pub mod virtual_module;
 
 pub use budget::ExecutionBudget;
 pub use engine::JsEngine;
+pub use executor::Executor;
 pub use module_loader::ModuleLoader;
 pub use virtual_module::VirtualModule;

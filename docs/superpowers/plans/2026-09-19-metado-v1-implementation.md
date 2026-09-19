@@ -2036,11 +2036,19 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-executor/src/lib.rs`
 
-- [ ] **Step 1:** Write integration test
-- [ ] **Step 2-5:** Implement and commit
+- [x] **Step 1:** Write integration test
+
+```rust
+// tests/executor_test.rs: eval/call 贯通 + VirtualModule 接线 + 预算边界 + 错误传播
+```
+- [x] **Step 2-5:** Implement and commit
 
 ---
 
+
+
+**实现:** `Executor` 门面（executor.rs）。v1 预算按边界操作（eval/call 各记 1）消费，
+将来换 boa 指令级燃料时公开 API 不变。
 ## Phase 3: Built-in Capabilities (metado-cap-*)
 
 ### Task 3.1: metado-cap-http
