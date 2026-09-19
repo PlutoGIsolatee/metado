@@ -18,6 +18,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 - 跨平台（Android / Windows / Linux）可嵌入，引擎为独立进程/服务
 - 语言 = **标准 JS（ESM）**，可混合 WASM 计算内核，且两者高效进程内集成
 - **插件源码 = 合法 Node 项目**（除 API）：标准 npm 结构（package.json + node_modules）、Node 工具链直接可用；**唯一例外**——Node 核心 API（process/fs/net/child_process/require…）运行时不可用，一律以受治理的 metado 能力替代（仅白名单 shim：Buffer/path/events）
+- **能力 API = 统一模块 `@metado/runtime`（跨运行时契约）**：引擎内为内置虚拟模块，Node 内为真实 npm 包，同一源码双运行时；**目标状态**：Node 可运行 + 现有工具链完全可测试（napi 完整等价后端，实现推迟见 §15）
 - 细粒度权限治理作为一等公民：请求 / 授予 / 执行三层语义
 - **分级生命周期常驻治理**：声明 / 用户确认 / 可修改（resident-high / resident-low 默认 / cold），正确性不依赖内存态
 - 接口约束（类型契约）加载期静态校验
@@ -150,7 +151,7 @@ permission = [...]                 engine.grant(plugin, [...])             host_
 
 ### 5.2 三层语义
 
-- **最小权限**：加载时注入的 API 视图 = `requested ∩ available`；未请求的函数绑定不存在（访问即快速失败）。静态可审计，默认拒绝
+- **最小权限**：realm 授权视图（加载时解析）= `requested ∩ available`；未请求的能力导出不存在（访问即快速失败）。静态可审计，默认拒绝
 - **用户可设**：`granted ⊆ requested`，运行时由宿主应用决定实际授予范围；每次宿主 API 调用经运行时执行层复核
 - **领域规则**：宿主可注册领域级 resolver 叠加（如"http 仅限本应用白名单域名"、"调用次数超限自动降级"）
 
@@ -281,7 +282,7 @@ metado-cli / 绑定    # 工具与宿主绑定
 ```
 
 - 宿主：`default-features = false, features = ["metado-cap-storage"]` + 自研能力 crate，组合矩阵按 crate 隔离而非 feature 网格
-- **开放能力契约（源码级扩展性）**：`#[metado::capability(set = "...")]` 是导出给宿主 crate 的公开宏 / `impl CapabilitySet` trait，一个 impl 产出——权限名表 + 宿主函数集 + JS 模块绑定 + trace 元数据 + IPC 路由描述 + 领域规则钩子
+- **开放能力契约（源码级扩展性）**：`#[metado::capability(set = "...")]` 是导出给宿主 crate 的公开宏 / `impl CapabilitySet` trait，一个 impl 产出——权限名表 + 宿主函数集 + JS 绑定（`@metado/runtime` 导出结构）+ trace 元数据 + IPC 路由描述 + 领域规则钩子
 - 宿主自研能力与内置能力**完全同待遇**：最小权限注入、运行时裁决、CLI trace、行为对齐
 - 双层裁剪：**编译期 features** 消除重依赖（TLS/crypto 等），**运行时 `.with()`** 组合激活；`available = registered ∩ compiled`
 
@@ -303,15 +304,18 @@ metado-cli / 绑定    # 工具与宿主绑定
 ### 8.4 自定义能力（capability message）
 
 - 应用定制能力（UI、业务服务）以**类型化能力消息**提供，不走函数调用/句柄
-- 插件调用：`const r = await metado.custom("ui.alert", {title, body})`
+- 插件调用：`const r = await metado.custom("ui.alert", {title, body})`（`metado` 来自 `@metado/runtime` 导入）
 - 引擎把值路由给应用订阅的 capability channel；应用执行后可选返回一个值 → resolve 为 promise，插件 `await` 继续
 - 边界纪律：跨进程永远传值，不传句柄；每类 message 有 schema，可版本化
 
 ### 8.5 JS 侧 API 访问面
 
-- **内置能力**：授权集内的能力函数作为**模块绑定**自动注入每个单元作用域（如 `http.get(...)` 直接可用），无需 import 样板
-- **引擎全局对象 `metado`**：唯一的保留全局，承载引擎运行设施（`metado.log`、`metado.abort`、权限自省）与自定义能力派发（`metado.custom`）
-- 未授权的绑定不存在 → 访问即快速失败；两种访问风格都经过同一个权限解析器
+- 能力 API 的唯一入口 = 统一模块 **`@metado/runtime`**（跨运行时契约）：
+  - 引擎（boa）：模块加载器把该 specifier 解析为**内置虚拟模块**，按当前 realm 授权视图提供导出
+  - Node（开发/测试）：解析为真实 npm 包，同一 specifier、单一源码双运行时
+- 插件写法：`import { http, storage, metado } from "@metado/runtime"`
+- **未授权绑定不存在**：realm 授权视图只含 `granted ∩ available`，访问未授权项快速失败（两种运行时同一语义）
+- 「无 import 样板」的自动绑定注入**放弃**（Node 下不存在自由标识符注入，统一 import 才能保证单源码双运行时）
 
 ### 8.6 HostApi 抽象
 
@@ -371,7 +375,7 @@ myplugin/
 - 纯 ES module JS 包可拷入容器（lodash-es、axios、zod 等），模块原样保留
 - **不做自动 `require()`→ESM 重写**；CJS-only 包需作者在自有工具链中预转换（否则不支持）
 - 提供轻量 Node API shim（`Buffer`、`path`、`events`）
-- 依赖 Node 原生模块的包不可用，必须用宿主 API 替代（`metado.storage` / `metado.http`）
+- 依赖 Node 原生模块的包不可用，必须用宿主 API 替代（`import { storage, http } from "@metado/runtime"`）
 
 ## 11. 进程模型与通信
 
@@ -419,16 +423,18 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 本设计由多个子系统组成，实现按阶段推进：
 
 1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
-2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、模块注入、值互转、事件循环集成
+2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成
 3. **WASM 执行器**：wasmi 桥接、原始字节加载、import 函数、fuel 计量
 4. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
 5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，std 宿主，npm 拷入
 6. **引擎进程 + IPC**：transport 抽象、capability message 路由、平台实现（Android/Win/Linux）
 7. **示例与契约测试**：宿主自研能力示例（源码级扩展性验证）、行为对齐验证、CLI/生产对比测试
+8. **（推迟）Node 运行/测试包**：`@metado/runtime`（引擎侧已按规格供给）+ `metado-node`（napi 完整等价后端）、`@metado/testing` 测试架势
 
 ## 15. 明确推迟项
 
 - 交互式单步调试器（trace API 预留扩展点）
+- **Node 运行/测试包（推后）**：`@metado/runtime` 的 Node 侧真实供给 + `metado-node`（napi-rs 链 `metado-core` 的完整等价后端，真实权限裁决同源 Rust）、`@metado/testing`。**v1 不做**（纯 JS fallback 也不做）：需每平台原生构建矩阵 + V8/boa 语义对齐（由阶段 7 契约测试兜底）；但「能力 API = `@metado/runtime` 模块统一规格」的形态 v1 即遵循，引擎侧先行供给
 - **TypeScript**：v1 源码 = 纯 ESM JS；`.ts` 编译暂不加入 `mdl build`（需先定编译器选型 swc-rs/esbuild、sourcemap 恢复 .ts 行号，并修订"零转换"承诺，契机再启）
 - wasmtime（wasmi 镜像其 API，性能成为刚需时切换）
 - 跨插件调用
