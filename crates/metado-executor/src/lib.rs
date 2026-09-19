@@ -2,5 +2,7 @@
 //! Phase 2 模块将逐一在这里挂载。
 
 pub mod engine;
+pub mod module_loader;
 
 pub use engine::JsEngine;
+pub use module_loader::ModuleLoader;

@@ -1765,9 +1765,10 @@ git commit -m "feat(executor): implement boa JS engine integration"
 **Interfaces:**
 - Produces: `ModuleLoader::resolve(specifier, from) -> PathBuf`, `ModuleLoader::load(path) -> Source`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
+// 测试改写在真实临时目录建文件树（计划用虚构 /plugin 路径在真机 FS 不存在）
 // tests/module_loader_test.rs
 use metado_executor::ModuleLoader;
 
@@ -1800,8 +1801,8 @@ fn test_resolve_absolute() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement module loader
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement module loader
 
 ```rust
 // crates/metado-executor/src/module_loader.rs
@@ -1859,8 +1860,8 @@ impl ModuleLoader {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-executor/src/module_loader.rs
