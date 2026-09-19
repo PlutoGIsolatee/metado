@@ -540,7 +540,7 @@ git commit -m "feat(engine): implement ExecutionError model (§9.2)"
 **Interfaces:**
 - Produces: `Manifest { name, version, permission, permission_set, entries, lifecycle }`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/manifest_test.rs
@@ -592,8 +592,8 @@ fn test_invalid_toml() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement manifest parser
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement manifest parser
 
 ```rust
 // crates/metado-engine/src/manifest.rs
@@ -640,8 +640,8 @@ impl Manifest {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/manifest.rs

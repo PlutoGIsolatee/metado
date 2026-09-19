@@ -2,4 +2,5 @@
 //! 纯 Rust 数据结构与逻辑，无 JS 执行（JS 由 metado-executor / boa 提供）。
 
 pub mod error;
+pub mod manifest;
 pub mod value;
