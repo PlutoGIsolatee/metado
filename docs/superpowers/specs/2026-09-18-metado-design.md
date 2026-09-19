@@ -15,7 +15,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 ### 目标
 
-- 跨平台（Android / Windows / Linux）可嵌入，引擎为独立进程/服务
+- 跨平台（Android / Windows / Linux）可嵌入，**引擎绝对独立进程/服务**（宿主进程内无引擎代码、引擎进程内无宿主代码，运行期）
 - 语言 = **标准 JS（ESM）**，可混合 WASM 计算内核，且两者高效进程内集成
 - **插件源码 = 合法 Node 项目**（除 API）：标准 npm 结构（package.json + node_modules）、Node 工具链直接可用；**唯一例外**——Node 核心 API（process/fs/net/child_process/require…）运行时不可用，一律以受治理的 metado 能力替代（仅白名单 shim：Buffer/path/events）
 - **能力 API = 统一模块 `@metado/runtime`（跨运行时契约）**：引擎内为内置虚拟模块，Node 内为真实 npm 包，同一源码双运行时；**目标状态**：Node 可运行 + 现有工具链完全可测试（napi 完整等价后端，实现推迟见 §15）
@@ -41,27 +41,28 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 ```
                      ┌──────────────────────────────────────────┐
-                     │            引擎核心（唯一）                │
-                     │  容器/Manifest 解析│ 入口注册│ 值模型    │
-                     │  权限解析器 │ 签名验签 │ 轨迹观测(Trace)   │
+                     │           引擎核心（唯一实现）              │
+                     │  容器/Manifest 解析│ 入口注册│ 值模型       │
+                     │  权限解析器 │ 签名验签 │ 轨迹观测(Trace)    │
                      └───┬──────────┬──────────┬──────────┬──────┘
                          │          │          │          │
-                     JS 执行器(boa)│ WASM 执行器(wasmi)│ 宿主能力注册表│ Capability 路由器
+                     JS执行器(boa)│WASM内核(wasmi)│能力注册表│Capability 路由器
                          │          │          │          │
                      ┌───┴──────────┴──────────┴──────────┴──────┐
-                     │       引擎进程（daemon/service）            │
-                     │   进程间通信层（IPC transport）              │
+                     │  引擎进程（daemon/service，绝对独立）       │
+                     │  IPC（JSON-RPC 2.0，双向）                  │
                      └───┬──────────────────┬────────────────────┘
+                         │ 管理方法面        │ 回调面（capability message + 事件）
                          ▼                  ▼
-               ┌───────────────┐    ┌─────────────────┐
-               │ 生产宿主（app）│    │ CLI 宿主（dev）  │
-               │ 真后端+真实授权 │    │ mock host + trace│
-               └───────────────┘    └─────────────────┘
+                ┌───────────────┐   ┌──────────────────┐
+                │ 宿主（app）    │   │ CLI（引擎工具链）  │
+                │ 管理+服务订阅   │   │ 独立实例+trace    │
+                └───────────────┘   └──────────────────┘
 ```
 
-- **引擎核心**：单一实现，CLI 与生产共用，保证行为对齐
-- **宿主 API 抽象**（`HostApi` trait）：CLI 提供 std 宿主（可配置 mock），生产宿主实现真实后端
-- **自定义能力**：应用定制能力以类型化 capability message 路由到应用进程
+- **引擎进程绝对独立**：自洽运行、故障隔离、宿主进程内无任何引擎代码，亦无宿主代码驻留引擎进程（§11）
+- **引擎核心**：单一实现，CLI 与生产共用同一引擎，保证行为对齐
+- **宿主交互仅经 IPC**：管理方法面（host→engine）+ 回调面（engine→host：capability message / 事件流）
 
 ## 4. 核心概念
 
@@ -270,9 +271,10 @@ absent → installing（验签，记录 plugin_id + signer 指纹）→ installe
 
 ## 8. 宿主能力与能力框架（SDK 构建）
 
-### 8.1 引擎 = 平台 + 能力框架（按需构建实现）
+### 8.1 引擎 = 平台 + 能力框架（宿主开发者定制引擎）
 
-- **定制构建定位**：每个宿主构建自己的引擎进程镜像（源码构建），进程隔离保留（§11）
+- **定制引擎定位**：引擎是平台/SDK；**宿主开发者**在构建期选择内置能力（features）并编译自己的能力集，产出**宿主定制的引擎产物**——该产物是独立进程
+- **运行期自洽**：定制只发生在构建期；运行期引擎进程内无宿主代码驻留（绝对独立进程，§11），宿主交互仅经 IPC
 - **crate 布局**（feature 矩阵的答案）：
 
 ```
@@ -280,13 +282,13 @@ metado-engine        # 核心 crate：能力框架开放、入口/模块注册�
 metado-cap-http      # 内置能力 = 独立 crate/feature，按需取舍
 metado-cap-storage   #   各自的重依赖只进需要它的构建
 metado-cap-...       #   storage/vfs/file/time/log/crypto
-metado-cli / 绑定    # 工具与宿主绑定
+metado-cli / 绑定    # 引擎工具链与宿主 IPC 绑定
 ```
 
-- 宿主：`default-features = false, features = ["metado-cap-storage"]` + 自研能力 crate，组合矩阵按 crate 隔离而非 feature 网格
-- **开放能力契约（源码级扩展性）**：`#[metado::capability(set = "...")]` 是导出给宿主 crate 的公开宏 / `impl CapabilitySet` trait，一个 impl 产出——权限名表 + 宿主函数集 + JS 绑定（`@metado/runtime` 导出结构）+ trace 元数据 + IPC 路由描述 + 领域规则钩子
-- 宿主自研能力与内置能力**完全同待遇**：最小权限注入、运行时裁决、CLI trace、行为对齐
-- 双层裁剪：**编译期 features** 消除重依赖（TLS/crypto 等），**运行时 `.with()`** 组合激活；`available = registered ∩ compiled`
+- 宿主开发者：`default-features = false, features = ["metado-cap-storage"]` + 自研能力 crate，组合矩阵按 crate 隔离而非 feature 网格
+- **开放能力契约（源码级扩展）**：`#[metado::capability(set = "...")]` 是导出给**宿主开发者** crate 的公开宏 / `impl CapabilitySet` trait，一个 impl 产出——权限名表 + 宿主函数集 + JS 绑定（`@metado/runtime` 导出结构）+ trace 元数据 + capability 路由描述 + 领域规则钩子（配置驱动）
+- 定制能力与内置能力**完全同待遇**：最小权限注入、运行时裁决、trace、行为对齐
+- 双层裁剪：**编译期 features** 决定"能用什么"，**引擎产物内运行时激活**（构建期配置，可经 RPC 管理面调整）；`available = compiled ∩ active`
 
 ### 8.2 内置能力集（built-in capability sets）
 
@@ -297,11 +299,11 @@ metado-cli / 绑定    # 工具与宿主绑定
 
 | 层 | 位置 | 用途 |
 |---|---|---|
-| 内置能力集 | metado 仓库，宿主 features 选择 | http/storage/vfs/crypto 等通用能力 |
-| **宿主源码级能力集** | 宿主 crate，`#[capability]` | 宿主定制的原生能力，随引擎镜像进引擎进程 |
+| 内置能力集 | metado 仓库，宿主开发者 features 选择 | http/storage/vfs/crypto 等通用能力 |
+| **宿主开发者定制能力集** | 宿主开发者 crate，`#[capability]`，构建期 | 宿主定制的原生能力，编译进宿主定制的引擎产物 |
 | capability message（8.4） | 跨 IPC | 真正住在 app 进程的服务（UI 等），引擎路由过去 |
 
-- 宿主源码级能力**默认原生运行于引擎进程**；需要 app 侧参与时，其实现可把调用转发为 capability message（引擎→app）
+- 定制能力经构建期进入引擎产物后随引擎进程**自洽运行**（运行期无宿主代码驻留）；需要 app 侧参与时走 capability message（引擎→app）
 
 ### 8.4 自定义能力（capability message）
 
@@ -327,9 +329,13 @@ metado-cli / 绑定    # 工具与宿主绑定
 - **只镜像形状，不镜像权限语义**：每次调用仍过 realm 授权视图；shim 只承诺形状兼容，不承诺 Node 行为
 - **具体导出清单未锁定** → 研究待办：逐一对照 Web/Node 约定确定初版导出面（§14）
 
-### 8.6 HostApi 抽象
+### 8.6 引擎-宿主交互面（替代旧 HostApi）
 
-`HostApi` trait 是引擎与宿主能力的唯一接口。CLI 的 std 宿主与生产宿主都实现它，保证行为一致。
+宿主没有 in-process 代码面（**无 `HostApi` trait**）。引擎进程自洽，宿主经 IPC 交互（§11）：
+
+- **管理方法面（host→engine）**：grant/revoke、setLifecycle、invoke、listPlugins、uninstall/purge、registerPermissionSet、setDomainConfig、trace 订阅
+- **回调面（engine→host）**：capability message dispatch（app 驻留服务）+ 事件流 notify
+- **引擎内置能力自给自足**（机制在引擎内），宿主只经管理面配置/治理；可选 Provider 覆盖经 capability message（慢通道、显式启用）
 
 ## 9. 执行与错误处理
 
@@ -387,18 +393,57 @@ myplugin/
 - 提供轻量 Node API shim（`Buffer`、`path`、`events`）
 - 依赖 Node 原生模块的包不可用，必须用宿主 API 替代（`import { storage, http } from "@metado/runtime"`）
 
-## 11. 进程模型与通信
+## 11. 引擎-宿主交互（绝对独立进程）
 
-- 引擎为独立进程/服务，**镜像由宿主定制构建**（§8.1）：故障隔离（插件崩溃不拖垮宿主）、宿主语言解耦、沙箱升级路径
-- IPC transport 抽象层各平台实现：Android bound service、Win/Linux Unix domain socket
-- 协议线格式：**JSON-RPC 2.0**（v1 默认；值传递原则下简单可调试，若体积成为问题再引入二进制编码）
-- 协议边界均为值传递；宿主源码级能力原生运行于引擎内（零 IPC），app 侧服务走 capability message
+### 11.1 进程原则
+
+- 引擎**始终以独立进程/服务运行**：自洽、故障隔离（插件崩溃不拖垮宿主）、无宿主代码驻留（运行期）
+- 引擎产物 = 宿主开发者于构建期定制的独立镜像（§8.1）；宿主运行时**不往引擎进程内注入任何代码**
+- 引擎与宿主的唯一运行期交互 = IPC（管理方法面 + 回调面）
+- IPC transport 各平台实现：Android bound service、Win/Linux Unix domain socket
+- 线格式：**JSON-RPC 2.0**（v1；值传递原则下简单可调试，体积成问题时再二进制编码）
+- 本地可信信道（bound service 绑定 / UDS peer 凭据），**引擎-宿主间不加密**：造假面不在本地管道，插件签名面才是外界信任边界
+
+### 11.2 管理方法面（host → engine）
+
+| 方法 | 语义 |
+|---|---|
+| `loadPlugin(bytes)` | 验签闸门 → 解析 → 静态检查 → 返回 `{plugin_id, signer_id, requested, lifecycle}` |
+| `grant / revoke(plugin_id, perms)` | 授予（granted ⊆ requested）、削减 |
+| `setLifecycle(plugin_id, mode)` | 设 effective 常驻模式（升级超出承诺由宿主负责先确认） |
+| `invoke(plugin_id, entry, value)` | 调入口，`Result<Value, ExecutionError>`；插件内排队（§7.6） |
+| `listPlugins / uninstall / purge` | 生命周期管理（uninstall 默认保留 storage） |
+| `registerPermissionSet(name, perms)` | 定义权限集 |
+| `setDomainConfig(ruleId, json)` | 领域规则运行时配置（白名单/配额/降级） |
+| `setActive(plugin_id, caps)` / 能力开关 | 引擎产物激活面调整（`available`） |
+| trace 订阅 | 流式轨迹开/关 |
+
+- **引擎从不等待用户**：任何需人确认的动作（安装、resident-high、授权）= 宿主自己弹 UI → 事后调 RPC（grant/setLifecycle）
+
+### 11.3 回调面（engine → host）
+
+| 回调 | 语义 |
+|---|---|
+| `dispatch(name, params, requestId)` → host 返回 Value/Error | **capability message**：app 驻留服务收到引擎路由的值，执行后 resolve 插件 promise（v1 单次 Request-Response，逐次请求） |
+| `notify(event)` | 事件流：`realmEvicted` / `quarantined(plugin_id)` / `pluginUpdated` / `pluginRemoved` |
+
+### 11.4 权威划分
+
+- **引擎 = 无主见执行者**：代码执行、权限裁决、生命周期、签名验签、沙箱、内置能力机制（模块在引擎内自给自足）
+- **宿主 = 决策与管理**：信任决策（安装/削减/升级确认）、管理配置（白名单/配额/密钥供给/能力开关）、app 驻留服务（经 capability message）、观测消费
+- 领域规则 v1 为引擎内配置驱动（setDomainConfig），不做宿主实时回调；将来需要宿主实时的走 `dispatch` 通道（§8.4）
+
+### 11.5 值、错误、信任线
+
+- 全链路同一值模型（§4.4）；RPC 序列化 JSON 兼容 + Bytes → `Uint8Array`
+- `ExecutionError { entry, kind, message }` 原样跨 RPC 回宿主
+- 插件签名信任不依赖 IPC（验签在引擎内、载荷进引擎前完成），宿主只管理"信不信该 signer"（§6）
 
 ## 12. 开发环境（CLI）
 
 ```
 mdl build <plugin-dir> [--key <sign-key>]     # 组装模块树容器 + 签名
-mdl run     <plugin.mdl> [--grant http.get]    # std 宿主执行，可配置 grants 模拟生产
+mdl run     <plugin.mdl> [--grant http.get]    # 运行引擎实例，可配置 grants 模拟生产
 mdl watch                                      # 监听源文件 → 增量重建容器 → 热重载 → 自动 rerun
 mdl test                                       # 插件测试（宿主 API 契约测试）
 mdl trace                                      # 执行轨迹观测
@@ -409,7 +454,9 @@ mdl sign     <plugin.mdl> <key>                # 单独签名/验签
 - **轨迹观测（Trace）**：入口调用起止 / 宿主 API 调用参数与结果 / 每次权限裁决 requested vs granted / 值流转；设计为可复用观测 API，供未来交互式调试器挂接
 - **行为对齐**：CLI 与生产共用同一引擎核心；验签、权限解析、沙箱语义零差异
 
-## 13. 引擎 API 面（Rust，示意）
+## 13. 引擎 API 面（Rust，示意）—— 引擎内部 / 构建集成面
+
+> 本 Rust API 是**引擎进程内部**与**宿主开发者构建期**使用的面（CLI / 测试 / 引擎 daemon 主程序 / 定制能力编译）；运行期的**宿主**只面对 §11 的 IPC 协议，不直接调这套 API。
 
 ```rust
 let mut engine = Engine::new();
@@ -418,8 +465,8 @@ engine.define_permission_set("standard", ["http.get", "log.info"]);
 
 let plugin = engine.load_plugin("plugin.mdl").await?;   // 验签闸门 → 解析 → 静态检查 → 权限注入
 let signer = plugin.signer_id();                        // 稳定发布者身份（公钥指纹）
-let mode   = plugin.lifecycle();                        // 读 effective 常驻模式（宿主可设）
-engine.grant(&plugin, ["http.get.api.example"]);        // 宿主授予（可被用户削减，granted ⊆ requested）
+let mode   = plugin.lifecycle();                        // 读 effective 常驻模式（宿主经 RPC 设）
+engine.grant(&plugin, ["http.get.api.example"]);        // 构建期/CLI 直接授予（生产宿主经 RPC grant）
 
 let out = plugin.invoke("onMessage", value).await?;
 // Result<Value, ExecutionError>
@@ -434,13 +481,13 @@ let out = plugin.invoke("onMessage", value).await?;
 - **`@metado/runtime` 导出清单**：按 §8.5 API 风格原则逐一对照 Web/Node 约定，确定 http/storage/vfs/file/time/log/crypto/custom 的初版导出形状；锁定前不进入阶段 2 实施
 - **boa 对 Web 类型/约定的支持面核验**（URL/Blob/TextEncoder/fetch 语义在 boa 下的现实缺口），反向约束导出形状选择
 
-1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
+1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**（无 JS/WASM 执行）
 2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成
 3. **WASM 计算内核**：wasmi 桥接、容器字节加载、插件 JS 实例化调用、fuel 计量、值进出无句柄
 4. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
-5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，std 宿主，npm 拷入
-6. **引擎进程 + IPC**：transport 抽象、capability message 路由、平台实现（Android/Win/Linux）
-7. **示例与契约测试**：宿主自研能力示例（源码级扩展性验证）、行为对齐验证、CLI/生产对比测试
+5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，引擎实例 + 可配置 grants，npm 拷入
+6. **引擎进程 + IPC**：transport 抽象、管理方法面、capability message 回调面、事件流，平台实现（Android/Win/Linux）
+7. **示例与契约测试**：宿主开发者定制能力示例（构建期扩展性验证）、行为对齐验证、CLI/生产对比测试
 8. **（推迟）Node 运行/测试包**：`@metado/runtime`（引擎侧已按规格供给）+ `metado-node`（napi 完整等价后端）、`@metado/testing` 测试架势
 
 ## 15. 明确推迟项
