@@ -466,18 +466,59 @@ payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store�
 
 ## 12. 开发环境（CLI）
 
+### 12.1 定位
+
+- **CLI = 引擎工具链**，是引擎的 in-process 宿主之一（同测试、引擎 daemon 主程序，§13 API 面），不是"另一个引擎"
+- **行为对齐**：与生产共用同一引擎核心——验签、权限解析、沙箱语义零差异；`HostApi` 已删，无"CLI 宿主 vs 生产宿主"实现分化，storage/log 等均为引擎同一实现
+- **信任底线**：CLI **从不运行未签名容器**（与生产一致）；dev 循环自动以**本机开发密钥**临时签名（生命周期仅本机），保证验签路径在任何模式下都被真实执行
+
+### 12.2 命令总览（分组）
+
 ```
-mdl build <plugin-dir> [--key <sign-key>]     # 组装模块树容器 + 签名
-mdl run     <plugin.mdl> [--grant http.get]    # 运行引擎实例，可配置 grants 模拟生产
-mdl watch                                      # 监听源文件 → 增量重建容器 → 热重载 → 自动 rerun
-mdl test                                       # 插件测试（宿主 API 契约测试）
-mdl trace                                      # 执行轨迹观测
-mdl sign     <plugin.mdl> <key>                # 单独签名/验签
+# 构建与签名（发布路径）
+mdl build <plugin-dir> [--key <sign-key>] [--out <file>]   # 组装 ZIP 容器 + 签名（§10.2）
+mdl sign  <plugin.mdl> --key <file>                        # 单独签名
+mdl verify <plugin.mdl> [--pubkey <file>]                  # 仅验签（载荷不解包）
+
+# 开发循环（反馈环）
+mdl run   <plugin.mdl|dir> [--grant <perm>] [--grant-set <name>]   # 引擎实例执行，模拟生产授权
+mdl watch <plugin-dir> [--key <sign-key>]                  # 源变更 → 增量重建 → 热重载 → rerun
+
+# 验证
+mdl test  <plugin-dir|plugin.mdl> [--key <sign-key>]       # 插件契约测试
+
+# 诊断与观测
+mdl env   <plugin-dir>                                     # 能力/权限出口静态诊断（见 12.5）
+mdl trace [<plugin.mdl>] [--filter <evt>] [--json]         # 执行轨迹观测
 ```
 
-- **热重载**：复用热引擎，重载变更模块/入口，秒级反馈循环
-- **轨迹观测（Trace）**：入口调用起止 / 宿主 API 调用参数与结果 / 每次权限裁决 requested vs granted / 值流转；设计为可复用观测 API，供未来交互式调试器挂接
-- **行为对齐**：CLI 与生产共用同一引擎核心；验签、权限解析、沙箱语义零差异
+### 12.3 开发循环（watch）
+
+```
+编辑源码（合法 Node 项目，任意编辑器/LSP/bundler）
+   → 文件变更 → 增量重建 ZIP 容器（store，廉价）→ 开发密钥签名
+   → 热重载（复用热引擎，仅重载变更模块/入口，保留住 realm）
+   → 自动 rerun（预设入口/测试）
+```
+
+- 秒级反馈；实时错误与权限拒绝直接内联提示（借 trace 返回）
+
+### 12.4 授权模拟（run / watch）
+
+- `--grant <perm>` 复刻生产 RPC `grant`（granted ⊆ requested）；`--grant-set <name>` 引用宿主权限集
+- 交互 `--ask`：模拟用户削减/确认流（授权弹窗、resident-high 确认），验证插件缺权与升级路径的真实表现
+- 生产差异仅剩"授权决策者"：CLI 用 flag/交互代替真实用户/宿主，其余全同
+
+### 12.5 能力/权限静态诊断（env）
+
+- 输出 `requested` 权限清单、`available`（`requested ∩ compiled ∩ active`）后**实际会导出的能力**、入口表、权限集可用性——签名前先看得到"缺了什么、多了什么"
+- 呼应 §4.3/§5"未请求的能力导出不存在"：诊断面 = 模块注册静态裁剪的可视化
+
+### 12.6 轨迹观测（trace）
+
+- 事件：入口调用起止 / capability 调用参数与结果 / 每次权限裁决 requested vs granted / 值流转
+- 关联调用点（模块 + 行号）供审计定位
+- 输出：human 树 + `--json` 供 CI/管道；内部为可复用 trace sink，交互式调试器预留挂接
 
 ## 13. 引擎 API 面（Rust，示意）—— 引擎内部 / 构建集成面
 
@@ -510,7 +551,7 @@ let out = plugin.invoke("onMessage", value).await?;
 1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**（无 JS 执行）
 2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成、**执行预算**（interrupt/递归/栈限制）
 3. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
-4. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，引擎实例 + 可配置 grants，npm 拷入
+4. **CLI 工具（mdl）**：build/sign/verify、run/watch（开发密钥自动签名 + 热重载）、test、env、trace（§12），引擎 in-process 宿主 + 可配置 grants / --ask 授权模拟，npm 拷入
 5. **引擎进程 + IPC**：transport 抽象、管理方法面、capability message 回调面、事件流，平台实现（Android/Win/Linux）
 6. **示例与契约测试**：宿主开发者定制能力示例（构建期扩展性验证）、行为对齐验证、CLI/生产对比测试
 7. **（推迟）Node 运行/测试包**：`@metado/runtime`（引擎侧已按规格供给）+ `metado-node`（napi 完整等价后端）、`@metado/testing` 测试架势
