@@ -162,7 +162,7 @@ permission = [...]                 engine.grant(plugin, [...])             host_
 
 - **最小权限**：realm 授权视图（加载时解析）= `requested ∩ available`；未请求的能力导出不存在（访问即快速失败）。静态可审计，默认拒绝
 - **用户可设**：`granted ⊆ requested`，运行时由宿主应用决定实际授予范围；每次宿主 API 调用经运行时执行层复核
-- **领域规则**：宿主可注册领域级 resolver 叠加（如"http 仅限本应用白名单域名"、"调用次数超限自动降级"）
+- **领域规则**：宿主可注册领域级 resolver 叠加（如"http 仅限本应用白名单域名"、"调用次数超限自动降级"、"单次载荷 Bytes/元素上限"）
 
 ### 5.3 权限集
 
@@ -325,6 +325,7 @@ metado-cli / 绑定    # 引擎工具链与宿主 IPC 绑定
   - Node（开发/测试）：解析为真实 npm 包，同一 specifier、单一源码双运行时
 - 插件写法：`import { http, storage, metado } from "@metado/runtime"`
 - **未授权绑定不存在**：realm 授权视图只含 `granted ∩ available`，访问未授权项快速失败（两种运行时同一语义）
+- **载荷传递 = 整值 + 容量上限**（v1 不支持流式宿主 API，§15）：能力入参出参为完整 Value；实施默认 + 宿主 domain rules 配额约束 Bytes/元素上限，超限 = `ExecutionError{kind=limit}`；大 blob 尽量留在引擎内（内置 storage 不跨 IPC），需逐期诱导增量时为推迟的流式能力后置
 - 「无 import 样板」的自动绑定注入**放弃**（Node 下不存在自由标识符注入，统一 import 才能保证单源码双运行时）
 
 #### API 风格原则（形状镜像，语义自研）
@@ -567,3 +568,4 @@ let out = plugin.invoke("onMessage", value).await?;
 - 压缩（容器初版可不压缩，体积成为问题时再启用，分节内透传）
 - 密钥轮换（同签更新缺失时的迁移路径，需升级签名 scheme 时再设计）
 - 句柄式宿主对象跨 WASM 沙箱（永久拒绝）
+- **流式宿主 API**：大载荷增量传输（分块 slice + 背压 + 取消 + 途中错误/生命周期）；v1 以整值 + 容量上限（§8.5、§5.2）替代，进度/推送经 notify；待零拷贝共享 buffer 与 boa 的 ReadableStream 支持面核验（§14）后以显式 opt-in 能力形状落地
