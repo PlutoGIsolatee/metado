@@ -448,7 +448,7 @@ git commit -m "feat(engine): implement Value model (§4.4)"
 **Interfaces:**
 - Produces: `ExecutionError { entry, kind, message }`, `ErrorKind` enum
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/error_test.rs
@@ -481,8 +481,8 @@ fn test_fault() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement error module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement error module
 
 ```rust
 // crates/metado-engine/src/error.rs
@@ -522,8 +522,8 @@ impl fmt::Display for ExecutionError {
 impl std::error::Error for ExecutionError {}
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/error.rs
