@@ -834,7 +834,7 @@ git commit -m "feat(engine): implement Ed25519 signature (§6)"
 **Interfaces:**
 - Produces: `PermissionResolver { requested, granted, available, domain_rules }`, `check(capability_name) -> Result<(), PermissionDenied>`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/permission_test.rs
@@ -893,14 +893,14 @@ fn test_undefined_permission_set_fails() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement permission module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement permission module
 
 ```rust
 // crates/metado-engine/src/permission.rs
 use std::collections::HashSet;
 
-#[derive(Debug, Clone)]
+// 注意: 含 `Vec<Box<dyn Fn(&str) -> bool>>` 不可 derive Debug/Clone（dyn Fn 非 Sized）
 pub struct PermissionResolver {
     requested: Vec<String>,
     granted: HashSet<String>,
@@ -924,8 +924,21 @@ impl PermissionResolver {
         self.signer_id = Some(signer_id.to_string());
     }
 
+    // 注意: 模板匹配 —— requested/available 可能含 `<signer>` 占位符，
+    // 绑定 signer 后对具体权限同样成立（TDD 实际修正）
     pub fn can_grant(&self, perm: &str) -> bool {
-        self.requested.iter().any(|r| r == perm) && self.available.iter().any(|a| a == perm)
+        self.requested.iter().any(|r| self.matches(r, perm))
+            && self.available.iter().any(|a| self.matches(a, perm))
+    }
+
+    fn matches(&self, template: &str, perm: &str) -> bool {
+        if template == perm {
+            return true;
+        }
+        if template.contains("<signer>") {
+            return self.resolve_signer_placeholder(template) == perm;
+        }
+        false
     }
 
     pub fn grant(&mut self, perms: Vec<String>) {
@@ -988,8 +1001,8 @@ impl PermissionSet {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/permission.rs
