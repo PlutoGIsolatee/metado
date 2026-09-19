@@ -1960,7 +1960,7 @@ git commit -m "feat(executor): implement @metado/runtime virtual module"
 **Interfaces:**
 - Produces: `ExecutionBudget { max_ops, fuel }`, `Budget::consume()`, `Budget::is_exhausted()`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/budget_test.rs
@@ -1972,7 +1972,7 @@ fn test_budget_consume() {
     assert!(!budget.is_exhausted());
     budget.consume(50).unwrap();
     assert!(!budget.is_exhausted());
-    budget.consume(60).unwrap(); // 超限
+    budget.consume(51).is_err(); // 超限 → Err（计划 .unwrap() 必 panic，已修）
     assert!(budget.is_exhausted());
 }
 
@@ -1981,13 +1981,13 @@ fn test_budget_exact() {
     let mut budget = ExecutionBudget::new(100);
     budget.consume(100).unwrap();
     assert!(!budget.is_exhausted());
-    budget.consume(1).unwrap();
-    assert!(budget.is_exhausted());
+    budget.consume(1).is_err();
+    assert!(budget.is_exhausted()); // 同上修正
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement budget module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement budget module
 
 ```rust
 // crates/metado-executor/src/budget.rs
@@ -2021,8 +2021,8 @@ impl ExecutionBudget {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-executor/src/budget.rs

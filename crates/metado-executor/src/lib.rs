@@ -1,10 +1,12 @@
 //! Metado JS 执行器（v1）：boa 桥接、模块解析、值互转、执行预算。
 //! Phase 2 模块将逐一在这里挂载。
 
+pub mod budget;
 pub mod engine;
 pub mod module_loader;
 pub mod virtual_module;
 
+pub use budget::ExecutionBudget;
 pub use engine::JsEngine;
 pub use module_loader::ModuleLoader;
 pub use virtual_module::VirtualModule;
