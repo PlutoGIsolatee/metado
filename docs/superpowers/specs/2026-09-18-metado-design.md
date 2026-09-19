@@ -1,6 +1,6 @@
 # Metado 设计文档
 
-日期：2026-09-18（rev 3：二进制 ESM 模块树容器，生产可调试）
+日期：2026-09-18（rev 9：移除类型契约子系统，WASM 重定位为 JS 计算内核，入口模型）
 状态：待评审
 
 ## 1. 概述
@@ -21,7 +21,6 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 - **能力 API = 统一模块 `@metado/runtime`（跨运行时契约）**：引擎内为内置虚拟模块，Node 内为真实 npm 包，同一源码双运行时；**目标状态**：Node 可运行 + 现有工具链完全可测试（napi 完整等价后端，实现推迟见 §15）
 - 细粒度权限治理作为一等公民：请求 / 授予 / 执行三层语义
 - **分级生命周期常驻治理**：声明 / 用户确认 / 可修改（resident-high / resident-low 默认 / cold），正确性不依赖内存态
-- 接口约束（类型契约）加载期静态校验
 - Android 式签名体系：完整性验签、签名即稳定身份、同签更新、同签名数据互通
 - 单文件发布（**二进制模块树容器，零打包转换**），多文件源码
 - **生产可读可调试**：分发物保留真实模块结构与源码（无 minify/混淆/bundle 转换），堆栈指向真实文件与行号
@@ -43,7 +42,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ```
                      ┌──────────────────────────────────────────┐
                      │            引擎核心（唯一）                │
-                     │  容器/Manifest 解析│ 单元模型│ 类型系统    │
+                     │  容器/Manifest 解析│ 入口注册│ 值模型    │
                      │  权限解析器 │ 签名验签 │ 轨迹观测(Trace)   │
                      └───┬──────────┬──────────┬──────────┬──────┘
                          │          │          │          │
@@ -76,25 +75,23 @@ plugin.mdl =
   模块树容器（manifest + 索引 + ESM 模块文件 + wasm）  §10
 ```
 
-### 4.2 入口单元（Unit）
+### 4.2 入口（Entries）
 
-单元 = manifest 声明的**入口导出**（指向标准 ESM 导出），附带类型契约。**只有声明的入口单元是引擎可调用、带类型契约的**（权限是插件级的，见 §4.3）。
+插件对外暴露 = manifest 声明的**入口**（`入口名 → ESM 导出`）。**只有声明的入口被宿主调用**；权限是插件级的（§4.3）。
 
 源码侧 manifest（`mdl.toml`，TOML）：
 
 ```toml
-name       = "myplugin"
-version    = "1.0.0"
-permission = ["http.get.api.example", "storage.<signer>.write"]   # 插件级请求权限
-permission-set = ["standard"]                                      # 引用宿主定义权限集
+name        = "myplugin"
+version     = "1.0.0"
+permission  = ["http.get.api.example", "storage.<signer>.write"]  # 插件级请求权限
+permission-set = ["standard"]                                     # 引用宿主定义权限集
 
-[units.onMessage]
-type   = "Json->Json"      # 接口契约
+[entries.onMessage]
 export = "onMessage"       # 指向 ESM 导出名
 
-[units.transform]
-type   = "Bytes->Bytes"
-export = "transform"
+[entries.boot]             # 可选：realm 创建时触发一次（重水合，§7.1）
+export = "boot"
 ```
 
 对应 JS（标准 ESM）：
@@ -102,35 +99,39 @@ export = "transform"
 ```js
 // on_message.js
 export async function onMessage(input) { ... }
-// transform.wasm 对应字节由 manifest 引用内联
+// boot.js
+export async function boot() { ... }
 ```
 
+- 入口是**纯 async 函数**：宿主传引擎值（§4.4），JS 侧映射标准 JS 值；**无 manifest 类型声明**，接口由 JS 语言自身承担
 - **可见性语义由 ESM 天然承担**：未在 manifest 声明的导出是纯内部实现，引擎不可见、不可调用
-- 所有 manifest 声明（单元、契约、权限）在**加载期静态校验**（`type=Json->Json` 等）
+- 所有 manifest 声明（入口、权限）在**加载期静态校验**
+- `boot` 入口在 realm 首次触达前执行，用于从 storage 重水合；无 boot 声明则直接执行
 
 ### 4.3 内部模块组织
 
-- 单元内可 `import` 本插件内部 helper 模块与纯 JS npm 包，**完全通用标准 ESM**
+- 插件代码可 `import` 本插件内部 helper 模块与纯 JS npm 包，**完全通用标准 ESM**
 - 容器挂载为**模块文件系统**，boa 模块解析器按原始 `import "./helper.js"` 直接解析 —— **零打包、零转换**，模块图即文件树
-- **权限是插件级声明**（manifest 顶层），realm 授权视图作用于整个插件——内部模块与入口单元**同过同一权限解析器**，无任何绕过通道：helper 里 `import { http } from "@metado/runtime"` 照常走 `granted ∩ available` 裁决
-- 内部模块**不出现在 manifest 入口、不暴露为可调用单元**：只有入口单元带**类型契约**与可调用性（契约是单元级，权限是插件级）
+- **权限是插件级声明**（manifest 顶层），realm 授权视图作用于整个插件——内部模块与入口**同过同一权限解析器**，无任何绕过通道：helper 里 `import { http } from "@metado/runtime"` 照常走 `granted ∩ available` 裁决
+- 内部模块**不出现在 manifest 入口、不作为可调用入口**：入口是可调用面（权限是插件级的）
 
-### 4.4 类型契约（接口约束）
+### 4.4 值模型（Value Model）
 
-- `type=x->y` 中的类型名为**引擎级统一类型标识**，均指向引擎的 Rust 宿主类型
-- 核心类型：`String / Number / Bool / Bytes / Json / List<T> / Any`
-- 宿主可注册自定义类型（名字 + serde 实现）
-- **连接校验：严格相等**。调用方期望类型与单元声明类型严格一致，只开放 `Any` 作为显式逃生口
-- 运行时校验单元输出与声明类型一致，不一致即失败
+- 引擎统一值表示：`Null / Bool / Number / String / Bytes / List / Json-Map`（JSON 兼容 + Bytes）—— 值跨 JS / WASM / 宿主任意边界同一表示
+- 入口只传值：宿主 invoke 传 Value，JS 侧映射标准 JS 值；JS 侧无法序列化的对象（函数/句柄/循环引用）不跨边界
+- **无 manifest 级类型声明**：接口由 JS 语言自身与宿主侧期望承担；"接口是什么"是文档/测试层的事（`mdl test`），引擎不掺和
+- Bytes 为明确值类型：跨 IPC 与 `Uint8Array`/`ArrayBuffer` 对应
+- WASM 内核的类型化 IO 是内核自身契约（§4.5），不由 manifest 声明
 
-### 4.5 WASM 值边界（架构不变量）
+### 4.5 WASM 计算内核（架构不变量）
 
-> **句柄/对象身份永不跨入 WASM 沙箱。** WASM 单元永远是纯函数式值进出。
+> **句柄/对象身份永不跨入 WASM 沙箱。** WASM 只做纯函数式计算内核，由插件 JS 实例化调用。
 
-- WASM 单元只能接收/返回普通值（经线性内存搬运），无句柄、无对象身份、无生命周期管理
-- 好处：离线可测、沙箱最紧、唯一资源管控 = fuel 计量 + 输入大小
-- 需要长期状态的场景放 JS 层；WASM 只管纯计算内核
-- wasmi 作为 v1 运行时（纯 Rust 解释器，内置 fuel 计量，跨平台零障碍）。API 镜像 wasmtime，未来可替换
+- WASM **不是独立入口**：容器内的 .wasm 字节由插件 JS 加载并实例化，JS 负责编排（如 `onMessage` 里调用内核做数值计算）
+- 进出的值只能是普通值（经线性内存搬运）：无句柄、无对象身份、无生命周期管理；需要长期状态的场景放 JS 层
+- fuel 计量约束内核执行；离线可测、沙箱最紧，唯一资源管控 = fuel + 输入大小
+- wasmi 为 v1 运行时（纯 Rust 解释器、内置 fuel 计量、跨平台零障碍）；API 镜像 wasmtime，未来可替换
+- **加载路径为开放实现点（阶段 3）**：插件 JS 从容器模块树取字节后 `WebAssembly.compile/instantiate`；boa 的 WebAssembly 支持面待核验（§14）
 
 ## 5. 权限模型（核心）
 
@@ -275,7 +276,7 @@ absent → installing（验签，记录 plugin_id + signer 指纹）→ installe
 - **crate 布局**（feature 矩阵的答案）：
 
 ```
-metado-engine        # 核心 crate：能力框架开放、单元模型、权限、执行器、值类型
+metado-engine        # 核心 crate：能力框架开放、入口/模块注册、权限、执行器、值模型
 metado-cap-http      # 内置能力 = 独立 crate/feature，按需取舍
 metado-cap-storage   #   各自的重依赖只进需要它的构建
 metado-cap-...       #   storage/vfs/file/time/log/crypto
@@ -334,17 +335,17 @@ metado-cli / 绑定    # 工具与宿主绑定
 
 ### 9.1 执行
 
-- JS 单元：入口导出为 **async 函数（input → output）**，boa 驱动，引擎单一事件循环推进 job queue
-- WASM 单元：同步式调用（值经线性内存进出），执行使用 fuel 计量，不干扰事件循环
-- 宿主按名调用入口单元：`plugin.invoke(unit_name, input)`
-- 值边界统一：值跨 JS/WASM/宿主任意边界使用同一套引擎级值表示（引擎值 model）
+- **入口 = JS async 导出函数（input → output）**：boa 驱动，引擎单一事件循环推进 job queue
+- **WASM 计算内核由插件 JS 加载实例化**（§4.5）：fuel 计量、值进出、不单独作为入口
+- 宿主按名调用入口：`plugin.invoke(entry_name, value)`
+- 值边界统一：值跨 JS/WASM/宿主任意边界使用同一套引擎值表示（§4.4）
 
 ### 9.2 错误处理
 
 **一概短路中止，无错误作为值的传播。**
 
-- 加载/静态期错误（格式非法、签名无效、权限声明非法、类型不衔接、引用未授权 API、权限集未定义）在 `load_plugin` 时 fail-fast
-- 运行期错误 → 结构化 `ExecutionError { unit, name, kind: Runtime|Permission|Sandbox, message }`，由宿主决定处置
+- 加载/静态期错误（格式非法、签名无效、权限声明非法、引用未授权 API、权限集未定义）在 `load_plugin` 时 fail-fast
+- 运行期错误 → 结构化 `ExecutionError { entry, kind: Runtime|Permission|Sandbox, message }`，由宿主决定处置
 - 沙箱/环境错误（fuel 耗尽、WASM trap、序列化失败）永远中止
 - 插件作者需要"失败即结果"的场景，在 JS 层用 try/catch 自行消化
 
@@ -359,12 +360,12 @@ myplugin/
   package.json          # name/version/"type":"module"/exports
   package-lock.json     # 依赖快照（可复现构建）
   node_modules/         # npm install 产出，真实 npm 依赖
-  mdl.toml              # manifest：name/version/permission/permission-set/units/lifecycle
+  mdl.toml              # manifest：name/version/permission/permission-set/entries/lifecycle
   src/
     on_message.js       # 标准 ESM：export async function onMessage(input){...}
     helpers/util.js     # 内部模块，自由组织
   wasm/
-    transform.wasm      # 或 transform.wat/source（构建时编译）
+    transform.wasm      # 计算内核原始字节（.wat 由作者侧工具先行编译，非引擎转换）
 ```
 
 - 结构 = 标准 npm 项目：`npm install` 直接工作，编辑器/lint/LSP/bundler 全部可用
@@ -399,21 +400,20 @@ myplugin/
 mdl build <plugin-dir> [--key <sign-key>]     # 组装模块树容器 + 签名
 mdl run     <plugin.mdl> [--grant http.get]    # std 宿主执行，可配置 grants 模拟生产
 mdl watch                                      # 监听源文件 → 增量重建容器 → 热重载 → 自动 rerun
-mdl test                                       # 单元/集成测试（宿主 API 契约测试）
+mdl test                                       # 插件测试（宿主 API 契约测试）
 mdl trace                                      # 执行轨迹观测
 mdl sign     <plugin.mdl> <key>                # 单独签名/验签
 ```
 
-- **热重载**：复用热引擎，重载变更单元，秒级反馈循环
-- **轨迹观测（Trace）**：单元起止 / 宿主 API 调用参数与结果 / 每次权限裁决 requested vs granted / 值流转；设计为可复用观测 API，供未来交互式调试器挂接
-- **行为对齐**：CLI 与生产共用同一引擎核心；验签、权限解析、类型契约、沙箱语义零差异
+- **热重载**：复用热引擎，重载变更模块/入口，秒级反馈循环
+- **轨迹观测（Trace）**：入口调用起止 / 宿主 API 调用参数与结果 / 每次权限裁决 requested vs granted / 值流转；设计为可复用观测 API，供未来交互式调试器挂接
+- **行为对齐**：CLI 与生产共用同一引擎核心；验签、权限解析、沙箱语义零差异
 
 ## 13. 引擎 API 面（Rust，示意）
 
 ```rust
 let mut engine = Engine::new();
 engine.register_capability(Http::default());        // / storage / file / time / log / crypto
-engine.register_type::<MyType>("MyType");            // 可选：注册自定义宿主类型
 engine.define_permission_set("standard", ["http.get", "log.info"]);
 
 let plugin = engine.load_plugin("plugin.mdl").await?;   // 验签闸门 → 解析 → 静态检查 → 权限注入
@@ -421,7 +421,7 @@ let signer = plugin.signer_id();                        // 稳定发布者身份
 let mode   = plugin.lifecycle();                        // 读 effective 常驻模式（宿主可设）
 engine.grant(&plugin, ["http.get.api.example"]);        // 宿主授予（可被用户削减，granted ⊆ requested）
 
-let out = plugin.invoke("onMessage", json!({...})).await?;
+let out = plugin.invoke("onMessage", value).await?;
 // Result<Value, ExecutionError>
 ```
 
@@ -434,9 +434,9 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 - **`@metado/runtime` 导出清单**：按 §8.5 API 风格原则逐一对照 Web/Node 约定，确定 http/storage/vfs/file/time/log/crypto/custom 的初版导出形状；锁定前不进入阶段 2 实施
 - **boa 对 Web 类型/约定的支持面核验**（URL/Blob/TextEncoder/fetch 语义在 boa 下的现实缺口），反向约束导出形状选择
 
-1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
+1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
 2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成
-3. **WASM 执行器**：wasmi 桥接、原始字节加载、import 函数、fuel 计量
+3. **WASM 计算内核**：wasmi 桥接、容器字节加载、插件 JS 实例化调用、fuel 计量、值进出无句柄
 4. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
 5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，std 宿主，npm 拷入
 6. **引擎进程 + IPC**：transport 抽象、capability message 路由、平台实现（Android/Win/Linux）
