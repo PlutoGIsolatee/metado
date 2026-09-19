@@ -18,7 +18,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ### 目标
 
 - 跨平台（Android / Windows / Linux）可嵌入，**引擎绝对独立进程/服务**（宿主进程内无引擎代码、引擎进程内无宿主代码，运行期）
-- 语言 = **标准 JS（ESM）**，可混合 WASM 计算内核，且两者高效进程内集成
+- 语言 = **标准 JS（ESM）**，可混合 WASM 计算内核（内置能力，v1 后落地 §4.5），且两者高效进程内集成
 - **插件源码 = 合法 Node 项目**（除 API）：标准 npm 结构（package.json + node_modules）、Node 工具链直接可用；**唯一例外**——Node 核心 API（process/fs/net/child_process/require…）运行时不可用，一律以受治理的 metado 能力替代（仅白名单 shim：Buffer/path/events）
 - **能力 API = 统一模块 `@metado/runtime`（跨运行时契约）**：引擎内为内置虚拟模块，Node 内为真实 npm 包，同一源码双运行时；**目标状态**：Node 可运行 + 现有工具链完全可测试（napi 完整等价后端，实现推迟见 §15）
 - 细粒度权限治理作为一等公民：请求 / 授予 / 执行三层语义
@@ -42,15 +42,16 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ## 3. 架构总览
 
 ```
-                     ┌──────────────────────────────────────────┐
+┌──────────────────────────────────────────┐
                      │           引擎核心（唯一实现）              │
                      │  容器/Manifest 解析│ 入口注册│ 值模型       │
                      │  权限解析器 │ 签名验签 │ 轨迹观测(Trace)    │
                      └───┬──────────┬──────────┬──────────┬──────┘
                          │          │          │          │
-                     JS执行器(boa)│WASM内核(wasmi)│能力注册表│Capability 路由器
-                         │          │          │          │
-                     ┌───┴──────────┴──────────┴──────────┴──────┐
+                      JS执行器(boa)│能力注册表│Capability 路由器
+                 （WASM 内核 metado-cap-wasm：内置能力，推迟实现，v1 后 §4.5）
+                         │          │          │
+                     ┌───┴──────────┴──────────┴──────────────┐
                      │  引擎进程（daemon/service，绝对独立）       │
                      │  IPC（JSON-RPC 2.0，双向）                  │
                      └───┬──────────────────┬────────────────────┘
@@ -126,15 +127,18 @@ export async function boot() { ... }
 - Bytes 为明确值类型：跨 IPC 与 `Uint8Array`/`ArrayBuffer` 对应
 - WASM 内核的类型化 IO 是内核自身契约（§4.5），不由 manifest 声明
 
-### 4.5 WASM 计算内核（架构不变量）
+### 4.5 WASM 计算内核（能力契约；**实现推迟 v1 后**）
 
 > **句柄/对象身份永不跨入 WASM 沙箱。** WASM 只做纯函数式计算内核，由插件 JS 实例化调用。
 
-- WASM **不是独立入口**：容器内的 .wasm 字节由插件 JS 加载并实例化，JS 负责编排（如 `onMessage` 里调用内核做数值计算）
-- 进出的值只能是普通值（经线性内存搬运）：无句柄、无对象身份、无生命周期管理；需要长期状态的场景放 JS 层
+- **WASM = 内置能力 `metado-cap-wasm`**：与 http/storage 同待遇，插件经能力治理使用；它不是独立入口
+- 容器内 .wasm 字节由插件 JS 加载并实例化，JS 负责编排（`onMessage` 里调内核做数值计算）
+- 进出值只能是普通值（线性内存搬运）：无句柄、无对象身份、无生命周期；需要长期状态的场景放 JS 层
 - fuel 计量约束内核执行；离线可测、沙箱最紧，唯一资源管控 = fuel + 输入大小
-- wasmi 为 v1 运行时（纯 Rust 解释器、内置 fuel 计量、跨平台零障碍）；API 镜像 wasmtime，未来可替换
-- **加载路径为开放实现点（阶段 3）**：插件 JS 从容器模块树取字节后 `WebAssembly.compile/instantiate`；boa 的 WebAssembly 支持面待核验（§14）
+- **v1 纯 JS**：引擎无 WASM 运行器；较重计算走宿主定制能力 / capability message，JS 防失控用 boa 执行预算（interrupt / 递归 / 栈限制）
+- **v1 后实现**：wasmi 桥接（纯 Rust 解释器、内置 fuel、跨平台零障碍）、容器字节加载、插件 JS 实例化调用、值进出无句柄；性能成为刚需时切 wasmtime（API 预留镜像）
+- JS 面 = 标准 `WebAssembly` 命名空间（Web Platform 形状，§8.5）：boa 若自带支持则复用；否则引擎自托管 wasm 运行器提供该全局；能力缺失时全局为桩/缺失
+- 加载路径为开放实现点（该能力实现时核验，§14）
 
 ## 5. 权限模型（核心）
 
@@ -501,22 +505,22 @@ let out = plugin.invoke("onMessage", value).await?;
 
 - **`@metado/runtime` 导出清单**：按 §8.5 API 风格原则逐一对照 Web/Node 约定，确定 http/storage/vfs/file/time/log/crypto/custom 的初版导出形状；锁定前不进入阶段 2 实施
 - **boa 对 Web 类型/约定的支持面核验**（URL/Blob/TextEncoder/fetch 语义在 boa 下的现实缺口），反向约束导出形状选择
+- **boa 的 WebAssembly 支持面**（实现 `metado-cap-wasm` 前核验）：决定复用标准 `WebAssembly` 全局还是引擎自托管 wasm 运行器
 
-1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**（无 JS/WASM 执行）
-2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成
-3. **WASM 计算内核**：wasmi 桥接、容器字节加载、插件 JS 实例化调用、fuel 计量、值进出无句柄
-4. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
-5. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，引擎实例 + 可配置 grants，npm 拷入
-6. **引擎进程 + IPC**：transport 抽象、管理方法面、capability message 回调面、事件流，平台实现（Android/Win/Linux）
-7. **示例与契约测试**：宿主开发者定制能力示例（构建期扩展性验证）、行为对齐验证、CLI/生产对比测试
-8. **（推迟）Node 运行/测试包**：`@metado/runtime`（引擎侧已按规格供给）+ `metado-node`（napi 完整等价后端）、`@metado/testing` 测试架势
+1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**（无 JS 执行）
+2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成、**执行预算**（interrupt/递归/栈限制）
+3. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
+4. **CLI 工具（mdl）**：build（容器组装 + 签名）/ run / watch / test / trace，引擎实例 + 可配置 grants，npm 拷入
+5. **引擎进程 + IPC**：transport 抽象、管理方法面、capability message 回调面、事件流，平台实现（Android/Win/Linux）
+6. **示例与契约测试**：宿主开发者定制能力示例（构建期扩展性验证）、行为对齐验证、CLI/生产对比测试
+7. **（推迟）Node 运行/测试包**：`@metado/runtime`（引擎侧已按规格供给）+ `metado-node`（napi 完整等价后端）、`@metado/testing` 测试架势
 
 ## 15. 明确推迟项
 
 - 交互式单步调试器（trace API 预留扩展点）
-- **Node 运行/测试包（推后）**：`@metado/runtime` 的 Node 侧真实供给 + `metado-node`（napi-rs 链 `metado-core` 的完整等价后端，真实权限裁决同源 Rust）、`@metado/testing`。**v1 不做**（纯 JS fallback 也不做）：需每平台原生构建矩阵 + V8/boa 语义对齐（由阶段 7 契约测试兜底）；但「能力 API = `@metado/runtime` 模块统一规格」的形态 v1 即遵循，引擎侧先行供给
+- **Node 运行/测试包（推后）**：`@metado/runtime` 的 Node 侧真实供给 + `metado-node`（napi-rs 链 `metado-core` 的完整等价后端，真实权限裁决同源 Rust）、`@metado/testing`。**v1 不做**（纯 JS fallback 也不做）：需每平台原生构建矩阵 + V8/boa 语义对齐（由阶段 6 契约测试兜底）；但「能力 API = `@metado/runtime` 模块统一规格」的形态 v1 即遵循，引擎侧先行供给
 - **TypeScript**：v1 源码 = 纯 ESM JS；`.ts` 编译暂不加入 `mdl build`（需先定编译器选型 swc-rs/esbuild、sourcemap 恢复 .ts 行号，并修订"零转换"承诺，契机再启）
-- wasmtime（wasmi 镜像其 API，性能成为刚需时切换）
+- **WASM 计算内核（`metado-cap-wasm`）**：能力契约已定（§4.5），**v1 不实现**——wasmi 桥接、容器字节加载、插件 JS 实例化调用、fuel 计量、值进出无句柄，性能成为刚需时切 wasmtime
 - 跨插件调用
 - 零拷贝共享 buffer（`Bytes` 优化）
 - 压缩（容器初版可不压缩，体积成为问题时再启用，分节内透传）
