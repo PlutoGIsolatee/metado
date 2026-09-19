@@ -3,6 +3,12 @@ resolver = "2"
 members = [
     "crates/metado-engine",
     "crates/metado-executor",
+    "crates/metado-cap-log",
+    "crates/metado-cap-time",
+    "crates/metado-cap-crypto",
+    "crates/metado-cap-storage",
+    "crates/metado-cap-file",
+    "crates/metado-cap-http",
 ]
 
 [workspace.dependencies]

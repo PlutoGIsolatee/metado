@@ -1,0 +1,11 @@
+[package]
+name = "metado-cap-crypto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+metado-engine = { path = "../metado-engine" }
+sha2 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+hmac = { workspace = true }

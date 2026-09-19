@@ -2083,24 +2083,24 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cap-time/src/lib.rs`
 
-- [ ] Implement `now()` and `sleep()`
-- [ ] Commit
+- [x] Implement `now()` and `sleep()`
+- [x] Commit
 
 ### Task 3.5: metado-cap-log
 
 **Files:**
 - Create: `crates/metado-cap-log/src/lib.rs`
 
-- [ ] Implement info/warn/error/debug logging
-- [ ] Commit
+- [x] Implement info/warn/error/debug logging
+- [x] Commit
 
 ### Task 3.6: metado-cap-crypto
 
 **Files:**
 - Create: `crates/metado-cap-crypto/src/lib.rs`
 
-- [ ] Implement randomBytes, sha256, hmac
-- [ ] Commit
+- [x] Implement randomBytes, sha256, hmac
+- [x] Commit
 
 ---
 
