@@ -2056,27 +2056,27 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cap-http/src/lib.rs`
 
-- [ ] Implement `CapabilitySet` for http (get/post via reqwest)
-- [ ] Register permissions: `http.get`, `http.post`, `http.get.api.*`
-- [ ] Commit
+- [x] Implement `CapabilitySet` for http (get/post via reqwest)
+- [x] Register permissions: `http.get`, `http.post`, `http.get.api.*`
+- [x] Commit
 
 ### Task 3.2: metado-cap-storage
 
 **Files:**
 - Create: `crates/metado-cap-storage/src/lib.rs`
 
-- [ ] Implement `CapabilitySet` for storage (filesystem backend)
-- [ ] Support signer namespace: `storage.<signer>.read/write`
-- [ ] Private keyspace: `storage:<plugin_id>:<key>`
-- [ ] Commit
+- [x] Implement `CapabilitySet` for storage (filesystem backend)
+- [x] Support signer namespace: `storage.<signer>.read/write`
+- [x] Private keyspace: `storage:<plugin_id>:<key>`
+- [x] Commit
 
 ### Task 3.3: metado-cap-file
 
 **Files:**
 - Create: `crates/metado-cap-file/src/lib.rs`
 
-- [ ] Implement read-only file access
-- [ ] Commit
+- [x] Implement read-only file access
+- [x] Commit
 
 ### Task 3.4: metado-cap-time
 

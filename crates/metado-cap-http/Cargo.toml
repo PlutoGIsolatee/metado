@@ -1,0 +1,9 @@
+[package]
+name = "metado-cap-http"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+metado-engine = { path = "../metado-engine" }
+# blocking 走纯 http；https 需按宿主选 TLS 后端（v1 默认不编译 TLS，减体积）
+reqwest = { workspace = true }
