@@ -3,4 +3,5 @@
 
 pub mod error;
 pub mod manifest;
+pub mod signature;
 pub mod value;

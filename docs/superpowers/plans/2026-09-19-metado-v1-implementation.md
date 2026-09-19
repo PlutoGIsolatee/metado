@@ -658,7 +658,7 @@ git commit -m "feat(engine): implement manifest parser (§4.2)"
 **Interfaces:**
 - Produces: `sign(keypair, payload) -> SignedBundle`, `verify(pubkey, bundle) -> Result<Vec<u8>>`, `signer_id(pubkey) -> String`
 
-- [ ] **Step 1:** Write failing test
+- [x] **Step 1:** Write failing test
 
 ```rust
 // tests/signature_test.rs
@@ -677,7 +677,7 @@ fn test_sign_and_verify() {
 fn test_signer_id() {
     let kp = KeyPair::generate();
     let id = signer_id(kp.public_key_bytes());
-    assert_eq!(id.len(), 64); // SHA-256 hex
+    assert_eq!(id.len(), 32); // 公钥指纹: sha256 截段 16 bytes = 32 hex chars
 }
 
 #[test]
@@ -698,8 +698,8 @@ fn test_wrong_key_fails() {
 }
 ```
 
-- [ ] **Step 2:** Run test → verify FAIL
-- [ ] **Step 3:** Implement signature module
+- [x] **Step 2:** Run test → verify FAIL
+- [x] **Step 3:** Implement signature module
 
 ```rust
 // crates/metado-engine/src/signature.rs
@@ -761,7 +761,9 @@ impl SignedBundle {
     }
 
     pub fn verify(&self) -> Result<(), String> {
-        let pubkey_bytes: [u8; 32] = self.header[8..40].try_into()
+        // header layout: magic(4) + version(2) + pubkey(32) + payload_len(8)
+        let pubkey_bytes: [u8; 32] = self.header[6..38]
+            .try_into()
             .map_err(|_| "invalid header".to_string())?;
         self.verify_with_key(&pubkey_bytes)
     }
@@ -814,8 +816,8 @@ impl SignedBundle {
 }
 ```
 
-- [ ] **Step 4:** Run test → verify PASS
-- [ ] **Step 5:** Commit
+- [x] **Step 4:** Run test → verify PASS
+- [x] **Step 5:** Commit
 
 ```bash
 git add crates/metado-engine/src/signature.rs
