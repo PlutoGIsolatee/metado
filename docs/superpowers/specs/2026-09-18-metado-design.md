@@ -75,7 +75,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ```
 plugin.mdl =
   签名信封（signer_pubkey, signature, algorithm）      §6
-  模块树容器（manifest + 索引 + ESM 模块文件 + wasm）  §10
+  ZIP 模块树容器（manifest + src + node_modules + wasm）  §10
 ```
 
 ### 4.2 入口（Entries）
@@ -181,9 +181,9 @@ engine.define_permission_set("finance",  ["http.get.api.bank", "storage.read", "
 - **信封格式**：
 
 ```
-.mdl = header { magic, version, signer_pubkey, algorithm = "ed25519" }
+.mdl = header { magic "MDL1", format_version, signer_pubkey, algorithm = "ed25519" }
      + signature（覆盖后续所有字节）
-     + payload（模块树容器：manifest + 索引 + 模块文件 + wasm 原始字节）
+     + payload（ZIP 模块树容器：manifest + src + node_modules + wasm，§10.2）
 ```
 
 - **`signer_id` = 公钥指纹**（如 sha256 截段），作为插件的稳定发布者身份
@@ -382,10 +382,29 @@ myplugin/
 
 ### 10.2 分发（单文件，签名）
 
-- **容器格式**：二进制模块树容器 = 索引（入口表）+ 原样 payload（模块文件、wasm 原始字节）。含 manifest section、ESM 模块树、wasm 二进制。可压缩；索引支持快速定位
-- `mdl build` 流程：**组装容器**（把源码树原样装入，零转换/零 minify）→ **`mdl sign --key <file>` 签名** → 输出单文件 `plugin.mdl`
-- 模块级可读性不因容器格式受影响：加载后仍是文件树，堆栈指向真实路径与行号
-- 曾考虑的纯文本容器（base64 wasm / 转义）**放弃**：可读性需求在加载后的模块树层面，二进制容器更小、更快、免转义
+**plugin.mdl = 签名信封 + ZIP 模块树容器**
+
+```
+plugin.mdl =
+  签名信封
+    header       magic "MDL1" + format_version(u16) + algorithm("ed25519")
+                 + signer_pubkey(32B) + payload_len(u64)
+    signature    Ed25519(64B)，覆盖 header 之后全部字节（验签闸门在解包前，§6.2）
+    payload      ZIP 模块树容器
+
+payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store，不压缩）
+  mdl.toml           # manifest：name/version/permission/permission-set/entries/lifecycle
+  src/**             # ESM 模块，原样字节
+  node_modules/**    # npm 依赖，原样字节
+  wasm/**            # WASM 计算内核，原样字节
+```
+
+- **索引 = ZIP central directory**：任意模块按 path O(1) 定位 offset/length，无需自写二进制索引表；**入口表 = manifest（entries）**，容器内无冗余索引
+- **工具链可检视**：`unzip`/标准工具直接打开（契合"合法 Node 项目"），生产调试仍读加载后的文件树与真实行号
+- **免转义**：wasm / 任意字节原样入 entry，零 base64
+- **零转换**：store 即原样字节；压缩推迟（§15），将来 per-entry DEFLATE 不破坏格式（header 含 format_version 供演进）
+- **挂载安全**：只读模块文件系统，路径按容器内相对路径解析，防 `../` 穿越
+- `mdl build`：组装 ZIP 容器（源码树原样装入）→ `mdl sign --key <file>` 签名 → 单文件 `plugin.mdl`
 
 ### 10.3 生态复用（npm 包）
 
