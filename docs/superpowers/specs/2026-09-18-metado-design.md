@@ -317,6 +317,14 @@ metado-cli / 绑定    # 工具与宿主绑定
 - **未授权绑定不存在**：realm 授权视图只含 `granted ∩ available`，访问未授权项快速失败（两种运行时同一语义）
 - 「无 import 样板」的自动绑定注入**放弃**（Node 下不存在自由标识符注入，统一 import 才能保证单源码双运行时）
 
+#### API 风格原则（形状镜像，语义自研）
+
+- **Web Platform 优先**：标准形状直接镜像（fetch 风格 http、WebCrypto 风格 crypto、URL / Blob / ArrayBuffer / TextEncoder 等共享类型）—— JS 开发者成本最低；同一 facade 文件双运行时（V8 原生即含大部分）
+- **Node whitelist shim 保持 Node 形状**（Buffer/path/events，为 npm 互操作而存在）
+- **无标准可依处局部自研最小面**（storage 的 signer 命名空间 keyspace、vfs、time/log、capability dispatch）
+- **只镜像形状，不镜像权限语义**：每次调用仍过 realm 授权视图；shim 只承诺形状兼容，不承诺 Node 行为
+- **具体导出清单未锁定** → 研究待办：逐一对照 Web/Node 约定确定初版导出面（§14）
+
 ### 8.6 HostApi 抽象
 
 `HostApi` trait 是引擎与宿主能力的唯一接口。CLI 的 std 宿主与生产宿主都实现它，保证行为一致。
@@ -420,7 +428,10 @@ let out = plugin.invoke("onMessage", json!({...})).await?;
 
 ## 14. 范围分解与阶段
 
-本设计由多个子系统组成，实现按阶段推进：
+本设计由多个子系统组成，实现按阶段推进。另有**开放研究项**（先于对应阶段收敛、锁定）：
+
+- **`@metado/runtime` 导出清单**：按 §8.5 API 风格原则逐一对照 Web/Node 约定，确定 http/storage/vfs/file/time/log/crypto/custom 的初版导出形状；锁定前不进入阶段 2 实施
+- **boa 对 Web 类型/约定的支持面核验**（URL/Blob/TextEncoder/fetch 语义在 boa 下的现实缺口），反向约束导出形状选择
 
 1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、单元模型、类型系统、权限解析器、值表示、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、.with() 注册）**（无 JS/WASM 执行）
 2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成
