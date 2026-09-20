@@ -2221,8 +2221,8 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-daemon/src/main.rs`
 
-- [ ] Implement daemon: init engine, listen on IPC, dispatch to engine
-- [ ] Commit
+- [x] Implement daemon: init engine, listen on IPC, dispatch to engine
+- [x] Commit
 
 ---
 

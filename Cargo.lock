@@ -1266,10 +1266,18 @@ dependencies = [
 name = "metado-daemon"
 version = "0.1.0"
 dependencies = [
+ "hex",
+ "metado-cap-crypto",
+ "metado-cap-file",
+ "metado-cap-http",
+ "metado-cap-log",
+ "metado-cap-storage",
+ "metado-cap-time",
  "metado-engine",
  "metado-executor",
  "metado-ipc",
  "serde_json",
+ "zip",
 ]
 
 [[package]]

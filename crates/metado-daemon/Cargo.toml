@@ -4,7 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-metado-engine = { path = "../../crates/metado-engine" }
-metado-executor = { path = "../../crates/metado-executor" }
-metado-ipc = { path = "../../crates/metado-ipc" }
+metado-engine = { path = "../metado-engine" }
+metado-executor = { path = "../metado-executor" }
+metado-ipc = { path = "../metado-ipc" }
+metado-cap-log = { path = "../metado-cap-log" }
+metado-cap-time = { path = "../metado-cap-time" }
+metado-cap-crypto = { path = "../metado-cap-crypto" }
+metado-cap-storage = { path = "../metado-cap-storage" }
+metado-cap-file = { path = "../metado-cap-file" }
+metado-cap-http = { path = "../metado-cap-http" }
 serde_json = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+zip = { workspace = true }
