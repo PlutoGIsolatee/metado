@@ -2137,8 +2137,8 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cli/src/watch.rs`
 
-- [ ] Implement watch: file system watcher, incremental rebuild, hot reload
-- [ ] Commit
+- [x] Implement watch: file system watcher, incremental rebuild, hot reload
+- [x] Commit
 
 ### Task 4.5: `mdl test`
 

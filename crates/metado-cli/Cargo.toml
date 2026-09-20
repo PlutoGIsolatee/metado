@@ -7,6 +7,10 @@ edition = "2021"
 name = "mdl"
 path = "src/main.rs"
 
+[features]
+# 文件监听（notify 权重高、Termux 下更省内存：默认不启，mdl watch 时 --features watch）
+watch = ["dep:notify"]
+
 [dependencies]
 metado-engine = { path = "../metado-engine" }
 metado-cap-log = { path = "../metado-cap-log" }
@@ -19,3 +23,4 @@ clap = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
 zip = { workspace = true }
+notify = { workspace = true, optional = true }

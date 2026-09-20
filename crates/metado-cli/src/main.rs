@@ -36,6 +36,19 @@ enum Command {
         #[arg(long)]
         grant: Vec<String>,
     },
+    /// 监听插件目录，变更防抖后重建 + 运行（需 --features watch 编译）
+    Watch {
+        dir: PathBuf,
+        /// 签名密钥 hex 文件
+        #[arg(long)]
+        key: Option<PathBuf>,
+        /// 输出 .mdl（默认 <插件名>.mdl）
+        #[arg(long)]
+        output: Option<PathBuf>,
+        /// 防抖窗口毫秒
+        #[arg(long, default_value_t = 500)]
+        debounce_ms: u64,
+    },
     /// 重新签名（更换签名者）
     Sign {
         file: PathBuf,
@@ -95,6 +108,35 @@ fn run(cli: Cli) -> Result<(), String> {
             println!("re-signed {} with signer {}", file.display(), shorter(&metado_engine::signer_id(&kp.public_key_bytes())));
             Ok(())
         }
+        Command::Watch {
+            dir,
+            key,
+            output,
+            debounce_ms,
+        } => {
+            #[cfg(feature = "watch")]
+            {
+                let kp_key = key.clone().unwrap_or_else(default_key_path);
+                let out = match output {
+                    Some(o) => o,
+                    None => PathBuf::from(format!(
+                        "{}.mdl",
+                        dir.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "plugin".into())
+                    )),
+                };
+                let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                metado_cli::run_watch(&dir, &kp_key, &out, debounce_ms, stop)?;
+                Ok(())
+            }
+            #[cfg(not(feature = "watch"))]
+            {
+                let _ = (&dir, &key, &output, &debounce_ms);
+                Err("mdl watch requires building with --features watch".into())
+            }
+        }
+
         Command::Run { file, grant } => {
             let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {}", file.display(), e))?;
             let outcome = run_mdl(&bytes, &grant)?;
