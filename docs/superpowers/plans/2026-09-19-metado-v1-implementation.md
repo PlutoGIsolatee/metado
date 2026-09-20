@@ -2145,8 +2145,8 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cli/src/test.rs`
 
-- [ ] Implement test: run plugin entry as test, report results
-- [ ] Commit
+- [x] Implement test: run plugin entry as test, report results
+- [x] Commit
 
 ### Task 4.6: `mdl env`
 

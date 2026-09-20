@@ -6,9 +6,11 @@
 //! 主机密钥文件 = 64 hex 字符（32-byte ed25519 种子），默认 ~/.metado/keys/default.key
 
 mod run;
+mod test;
 mod watch;
 
 pub use run::{run_mdl, RunOutcome};
+pub use test::{test_mdl, TestOutcome};
 pub use watch::{build_and_run, WatchScheduler};
 #[cfg(feature = "watch")]
 pub use watch::run_watch;

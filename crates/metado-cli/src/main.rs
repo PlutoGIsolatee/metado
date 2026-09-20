@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use metado_cli::{build_plugin, default_key_path, run_mdl, sign_mdl, verify_mdl, KeyStore};
+use metado_cli::{build_plugin, default_key_path, run_mdl, sign_mdl, test_mdl, verify_mdl, KeyStore};
 
 #[derive(Parser)]
 #[command(name = "mdl", version, about = "Metado plugin toolchain")]
@@ -28,6 +28,13 @@ enum Command {
     /// 校验 .mdl 签名与清单
     Verify {
         file: PathBuf,
+    },
+    /// 运行插件契约测试（真实 ESM 执行）
+    Test {
+        file: PathBuf,
+        /// 模拟授权，可重复
+        #[arg(long)]
+        grant: Vec<String>,
     },
     /// 在进程内运行插件（invoke boot 入口）
     Run {
@@ -98,6 +105,20 @@ fn run(cli: Cli) -> Result<(), String> {
             let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {}", file.display(), e))?;
             let info = verify_mdl(&bytes)?;
             println!("OK {}: plugin {} signer {}", file.display(), info.plugin_name, shorter(&info.signer));
+            Ok(())
+        }
+        Command::Test { file, grant } => {
+            let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {}", file.display(), e))?;
+            let outcomes = test_mdl(&bytes, &grant)?;
+            let mut all_pass = true;
+            for o in &outcomes {
+                let mark = if o.passed { "PASS" } else { "FAIL" };
+                all_pass &= o.passed;
+                println!("[{}] {:<12} {}", mark, o.name, o.detail);
+            }
+            if !all_pass {
+                std::process::exit(1);
+            }
             Ok(())
         }
         Command::Sign { file, key } => {

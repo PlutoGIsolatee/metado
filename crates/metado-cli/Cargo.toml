@@ -19,6 +19,7 @@ metado-cap-crypto = { path = "../metado-cap-crypto" }
 metado-cap-storage = { path = "../metado-cap-storage" }
 metado-cap-file = { path = "../metado-cap-file" }
 metado-cap-http = { path = "../metado-cap-http" }
+metado-executor = { path = "../metado-executor" }
 clap = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
