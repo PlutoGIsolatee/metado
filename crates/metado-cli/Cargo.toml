@@ -9,6 +9,12 @@ path = "src/main.rs"
 
 [dependencies]
 metado-engine = { path = "../metado-engine" }
+metado-cap-log = { path = "../metado-cap-log" }
+metado-cap-time = { path = "../metado-cap-time" }
+metado-cap-crypto = { path = "../metado-cap-crypto" }
+metado-cap-storage = { path = "../metado-cap-storage" }
+metado-cap-file = { path = "../metado-cap-file" }
+metado-cap-http = { path = "../metado-cap-http" }
 clap = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }

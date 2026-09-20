@@ -1199,6 +1199,12 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "hex",
+ "metado-cap-crypto",
+ "metado-cap-file",
+ "metado-cap-http",
+ "metado-cap-log",
+ "metado-cap-storage",
+ "metado-cap-time",
  "metado-engine",
  "rand",
  "zip",

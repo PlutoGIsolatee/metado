@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
-use metado_cli::{build_plugin, default_key_path, sign_mdl, verify_mdl, KeyStore};
+use metado_cli::{build_plugin, default_key_path, run_mdl, sign_mdl, verify_mdl, KeyStore};
 
 #[derive(Parser)]
 #[command(name = "mdl", version, about = "Metado plugin toolchain")]
@@ -28,6 +28,13 @@ enum Command {
     /// 校验 .mdl 签名与清单
     Verify {
         file: PathBuf,
+    },
+    /// 在进程内运行插件（invoke boot 入口）
+    Run {
+        file: PathBuf,
+        /// 模拟授权，可重复（如 --grant http.get.api.external）
+        #[arg(long)]
+        grant: Vec<String>,
     },
     /// 重新签名（更换签名者）
     Sign {
@@ -86,6 +93,21 @@ fn run(cli: Cli) -> Result<(), String> {
             let re = sign_mdl(&bytes, &kp)?;
             write_mdl(&re, &file)?;
             println!("re-signed {} with signer {}", file.display(), shorter(&metado_engine::signer_id(&kp.public_key_bytes())));
+            Ok(())
+        }
+        Command::Run { file, grant } => {
+            let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {}", file.display(), e))?;
+            let outcome = run_mdl(&bytes, &grant)?;
+            if outcome.invoked {
+                println!(
+                    "ran {} boot (signer {}) -> {}",
+                    outcome.plugin_id,
+                    shorter(&outcome.signer),
+                    outcome.result.to_json_string().unwrap_or_else(|_| "<value>".into())
+                );
+            } else {
+                println!("{} declares no boot entry; loaded OK", outcome.plugin_id);
+            }
             Ok(())
         }
     }

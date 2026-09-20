@@ -2128,9 +2128,9 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cli/src/run.rs`
 
-- [ ] Implement run: in-process engine, load plugin, grant perms, invoke entry
-- [ ] `--grant` flags for permission simulation
-- [ ] Commit
+- [x] Implement run: in-process engine, load plugin, grant perms, invoke entry
+- [x] `--grant` flags for permission simulation
+- [x] Commit
 
 ### Task 4.4: `mdl watch`
 

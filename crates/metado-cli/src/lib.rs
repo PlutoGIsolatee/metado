@@ -1,8 +1,13 @@
-//! Metado CLI 核心逻辑（Phase 4）：key 管理 + build/verify/sign。
+//! Metado CLI 核心逻辑（Phase 4）：key 管理 + build/verify/sign/run。
 //! - `mdl build <plugin-dir>`：目录 → ZIP → 签名 → .mdl（SignedBundle 字节即磁盘格式）
 //! - `mdl verify <file>`：校验签名并回读 manifest
 //! - `mdl sign <file> [--key FILE]`：用指定密钥重置签名者
+//! - `mdl run <file.mdl>`：进程内引擎，grant 后 invoke boot 入口
 //! 主机密钥文件 = 64 hex 字符（32-byte ed25519 种子），默认 ~/.metado/keys/default.key
+
+mod run;
+
+pub use run::{run_mdl, RunOutcome};
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
