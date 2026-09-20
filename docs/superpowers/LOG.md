@@ -94,4 +94,41 @@
 
 ### 下一步
 - `cargo test --workspace` 全量回归（含受影响 engine/daemon/CLI）。
-- Task 6.x+：Node 侧 dev shim（检查 node 可用性）；后续 Phase 7+。
+- Task N.x Node dev shim 待做（node 可用性已确认）。
+
+---
+
+## 2026-09-20（会话四段） Task 6.4 全绿 + @metado/runtime dev shim
+
+### 今日完成
+
+**Task 6.4 Contract Test Suite（1404d68）**
+- 见上段。24/24 全绿；workspace 全量回归 **63 测试二进制全 ok、0 failed、0 warning**。
+- 发现并修复两处产品缺口（由契约测试逼出）：
+  - `Container::from_bytes` 入库时即拒 `..`/绝对路径条目（旧实现仅 read_file 挡）。
+  - daemon `listPlugins` entries 排序稳定；`trace` 事件补 `kind`（与 CLI to_json 对齐）。
+- 旧 engine container_test 断言更新（`..` 入库即拒，非读时才拒）。
+
+**Task N.1-N.7 Node dev shim（`packages/runtime-node`，@metado/runtime@0.1.0-dev，零新依赖）**
+- 回写：计划原稿 TS(.ts+tsconfig)，TS 属 §15"v1 明确不实现"，且 tsc 为新依赖 → 纯 ESM `.mjs` + JSDoc；不发布外网注册表（仅本地 `npm pack --dry-run` 校验）。
+- `errors.mjs`（MetadoError/ExecutionError/PermissionDeniedError）、`stub.mjs`（授权 → 未授权抛 PermissionDenied，已授权抛 "not available in Node"）、`grant.mjs`（Set + grant/grantAll/reset/isGranted）、`test-utils.mjs`（`__METADO_TEST__`）。
+- 能力模块权限名与真实 metado-cap-* 注册集逐一核对：http(get/post/get.api.*)、storage(read/write)、file(read/readText)、time(now/sleep)、log(info/warn/error/debug)、crypto(randomBytes/sha256/hmac)（初稿 hash/random/sign/verify 已按真实集更正）。
+- `custom.mjs`：Proxy 惰性返回函数（`custom.alert.call()`），访问不再同步抛（assert.rejects 捕获不到同步 getter 抛）。
+- `shim.mjs`：Buffer/path/EventEmitter 再导出。
+- `tests/permission.test.mjs`：11 断言（10 能力用例 + shim），package self-reference 导入 `@metado/runtime[/test]`，node:assert 零测试框架依赖。`npm test` 全过。
+
+### 排错记录（本次）
+1. pathspec `LOG.md` 大小写未命中 → 正确路径。
+2. assert.rejects 无法捕获 Proxy get 同步抛 → get 返回异步函数（惰性）。
+3. shim 权限名虚构（storage.delete/file.remove/crypto.hash）→ 对照注册集更正。
+4. 位翻转 magic 字节会 `from_bytes` Err → 契约测试"from_bytes Err 或 verify Err 均视为被拒"。
+5. `exported` 局部变量遮蔽同名函数 → E0308。
+
+### 当前状态
+- **Node v26.4.0 + npm 11 可用**；shim 全测试绿。
+- 提交：1404d68（contract + hardening）；本次将提交 packages/runtime-node + 计划/LOG 回写。
+- 计划勾选：N.1-N.7。
+
+### 下一步
+- 提交 Node shim。
+- Node 侧 dev shim 后续：插件桌面开发时导入对齐（Phase 7+ 前置）；日志系统接入 daemon 输出。

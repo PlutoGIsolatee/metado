@@ -2272,12 +2272,12 @@ git commit -m "feat(executor): implement execution budget"
 
 ## Node 侧极简占位包 (@metado/runtime dev shim)
 
-> v1 仅提供类型 + 占位实现，所有能力抛 "not available in Node"
+> v1 仅提供类型 + 占位实现，所有能力抛 "not available in Node"（已实现）
 
-### Task N.1: Package Setup
+### Task N.1: Package Setup（回写：Stay ESM/.mjs + JSDoc，TS 属于 §15 明确不实现，且 tsc 是新依赖）
 
 **Files:**
-- Create: `packages/runtime-node/package.json`, `packages/runtime-node/tsconfig.json`
+- Create: `packages/runtime-node/package.json`（无 tsconfig）
 
 - [ ] Set up ESM-only package with conditional exports
 - [ ] Commit
@@ -2285,7 +2285,7 @@ git commit -m "feat(executor): implement execution budget"
 ### Task N.2: Error Types
 
 **Files:**
-- Create: `packages/runtime-node/src/errors.ts`
+- Create: `packages/runtime-node/src/errors.mjs`
 
 - [ ] Implement ExecutionError, PermissionDenied classes
 - [ ] Commit
@@ -2293,7 +2293,7 @@ git commit -m "feat(executor): implement execution budget"
 ### Task N.3: Capability Stubs
 
 **Files:**
-- Create: `packages/runtime-node/src/http.ts`, `storage.ts`, `file.ts`, `time.ts`, `log.ts`, `crypto.ts`, `custom.ts`
+- Create: `packages/runtime-node/src/http.mjs`, `storage.mjs`, `file.mjs`, `time.mjs`, `log.mjs`, `crypto.mjs`, `custom.mjs`（权限名与真实 metado-cap-* 注册集逐一核对其）
 
 - [ ] Each export = throw "not available in Node"
 - [ ] Commit
@@ -2301,7 +2301,7 @@ git commit -m "feat(executor): implement execution budget"
 ### Task N.4: Node Shim (Buffer/path/events)
 
 **Files:**
-- Create: `packages/runtime-node/src/shim.ts`
+- Create: `packages/runtime-node/src/shim.mjs`
 
 - [ ] Re-export Buffer, path, events from Node
 - [ ] Commit
@@ -2309,7 +2309,7 @@ git commit -m "feat(executor): implement execution budget"
 ### Task N.5: Permission Test Utils
 
 **Files:**
-- Create: `packages/runtime-node/src/test-utils.ts`
+- Create: `packages/runtime-node/src/test-utils.mjs`
 
 - [ ] Implement `__METADO_TEST__` with granted Set + check function
 - [ ] Commit
@@ -2317,7 +2317,7 @@ git commit -m "feat(executor): implement execution budget"
 ### Task N.6: Main Export
 
 **Files:**
-- Create: `packages/runtime-node/src/index.ts`
+- Create: `packages/runtime-node/src/index.mjs`
 
 - [ ] Wire all exports, publish `@metado/runtime@0.1.0-dev`
 - [ ] Commit
@@ -2325,7 +2325,7 @@ git commit -m "feat(executor): implement execution budget"
 ### Task N.7: Permission Denial Test
 
 **Files:**
-- Create: `packages/runtime-node/tests/permission.test.ts`
+- Create: `packages/runtime-node/tests/permission.test.mjs`
 
 - [ ] Test: without granted → PermissionDenied reject
 - [ ] Test: with granted → no rejection (but still throws "not available" for stubs)

@@ -1,0 +1,20 @@
+{
+  "name": "@metado/runtime",
+  "version": "0.1.0-dev",
+  "description": "Metado v1 runtime dev shim — type-compatible placeholder. All capability calls throw PermissionDenied (ungranted) or ExecutionError 'not available in Node' (granted stub).",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./test": "./src/test-utils.mjs"
+  },
+  "files": [
+    "src/"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node tests/permission.test.mjs"
+  }
+}
