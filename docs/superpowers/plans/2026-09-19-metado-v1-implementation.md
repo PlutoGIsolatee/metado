@@ -2182,8 +2182,8 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-ipc/src/jsonrpc.rs`
 
-- [ ] Implement JSON-RPC request/response/notification encoding/decoding
-- [ ] Commit
+- [x] Implement JSON-RPC request/response/notification encoding/decoding
+- [x] Commit
 
 ### Task 5.3: Protocol Definition
 

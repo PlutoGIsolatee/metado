@@ -3,6 +3,7 @@
 //! UnixListener 是 `mdl` 命令行工具需要的 accept 面；daemon 用 `unix_server` 循环 accept
 //! 并逐连接驱动 Transport。Android/Windows 传输在宿主无法验证，见 plan 回写。
 
+pub mod jsonrpc;
 pub mod transport;
 pub mod unix;
 
