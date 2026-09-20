@@ -21,6 +21,7 @@ metado-cap-file = { path = "../metado-cap-file" }
 metado-cap-http = { path = "../metado-cap-http" }
 metado-executor = { path = "../metado-executor" }
 clap = { workspace = true }
+serde_json = { workspace = true }
 hex = { workspace = true }
 rand = { workspace = true }
 zip = { workspace = true }

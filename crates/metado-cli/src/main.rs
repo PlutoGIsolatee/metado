@@ -36,6 +36,13 @@ enum Command {
         #[arg(long)]
         grant: Vec<String>,
     },
+    /// 能力/权限静态诊断
+    Env {
+        file: PathBuf,
+        /// JSON 输出（CI/管道）
+        #[arg(long)]
+        json: bool,
+    },
     /// 在进程内运行插件（invoke boot 入口）
     Run {
         file: PathBuf,
@@ -156,6 +163,36 @@ fn run(cli: Cli) -> Result<(), String> {
                 let _ = (&dir, &key, &output, &debounce_ms);
                 Err("mdl watch requires building with --features watch".into())
             }
+        }
+
+        Command::Env { file, json } => {
+            let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {}", file.display(), e))?;
+            let report = metado_cli::env_mdl(&bytes)?;
+            if json {
+                let obj = serde_json::json!({
+                    "plugin": report.plugin_name,
+                    "signer": report.signer,
+                    "requested": report.requested,
+                    "permission_sets": report.permission_sets,
+                    "exported": report.exported_namespaces,
+                    "entries": report.entries,
+                    "ungranted_requests": report.ungranted_requests,
+                });
+                println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+            } else {
+                println!("plugin      {}", report.plugin_name);
+                println!("signer      {}", shorter(&report.signer));
+                println!("requested   {}", report.requested.join(", "));
+                if !report.permission_sets.is_empty() {
+                    println!("perm-sets   {}", report.permission_sets.join(", "));
+                }
+                println!("exported    {}", report.exported_namespaces.join(", "));
+                println!("entries     {}", report.entries.iter().map(|(n, e)| format!("{}->{}", n, e)).collect::<Vec<_>>().join(", "));
+                if !report.ungranted_requests.is_empty() {
+                    println!("!!! missing host capability: {}", report.ungranted_requests.join(", "));
+                }
+            }
+            Ok(())
         }
 
         Command::Run { file, grant } => {

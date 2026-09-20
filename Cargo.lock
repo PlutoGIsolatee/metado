@@ -1255,8 +1255,10 @@ dependencies = [
  "metado-cap-storage",
  "metado-cap-time",
  "metado-engine",
+ "metado-executor",
  "notify",
  "rand",
+ "serde_json",
  "zip",
 ]
 

@@ -5,12 +5,7 @@
 
 use std::collections::HashMap;
 
-use metado_cap_crypto::MetaCrypto;
-use metado_cap_file::MetaFile;
-use metado_cap_http::MetaHttp;
-use metado_cap_log::MetaLog;
-use metado_cap_storage::MetaStorage;
-use metado_cap_time::MetaTime;
+use crate::env::{exported_namespaces, registry_permissions};
 use metado_engine::{Container, Manifest, SignedBundle};
 use metado_executor::PluginRuntime;
 
@@ -30,22 +25,6 @@ fn truthy(value: &metado_engine::Value) -> bool {
     }
 }
 
-/// 收集内置能力申明的 permission 全集（供 available 判定）。
-fn available_permissions() -> Vec<String> {
-    let mut reg = metado_engine::CapabilityRegistry::new();
-    for cap in [
-        Box::new(MetaLog) as Box<dyn metado_engine::CapabilitySet>,
-        Box::new(MetaTime),
-        Box::new(MetaCrypto),
-        Box::new(MetaStorage),
-        Box::new(MetaFile),
-        Box::new(MetaHttp),
-    ] {
-        reg.register(cap);
-    }
-    reg.all_permissions()
-}
-
 pub fn test_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<Vec<TestOutcome>, String> {
     let bundle = SignedBundle::from_bytes(bytes)?;
     bundle.verify()?;
@@ -55,9 +34,11 @@ pub fn test_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<Vec<TestOutcome>
     let manifest_raw = String::from_utf8(manifest_raw).map_err(|e| format!("manifest utf8: {}", e))?;
     let manifest = Manifest::from_toml(&manifest_raw).map_err(|e| format!("manifest: {}", e))?;
 
-    let available = available_permissions();
-    let mut granted = manifest.permission.clone();
-    granted.extend(extra_grant.iter().cloned());
+    let available = registry_permissions();
+    let mut requested = manifest.permission.clone();
+    requested.extend(extra_grant.iter().cloned());
+    // §4.3：导出命名空间 = requested ∩ available（未请求 → 导出不存在）
+    let exported = exported_namespaces(&requested, &available);
 
     // 容器文件树 → 运行时 FilesFn
     let files: HashMap<String, Vec<u8>> = container
@@ -66,7 +47,7 @@ pub fn test_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<Vec<TestOutcome>
         .collect();
     let files = Box::new(move |rel: &str| files.get(rel).cloned());
 
-    let mut rt = PluginRuntime::new(&available, &granted, files)?;
+    let mut rt = PluginRuntime::new(&exported, files)?;
     let entry_module = "src/main.js";
     rt.load(entry_module)
         .map_err(|e| format!("load entry {}: {}", entry_module, e))?;

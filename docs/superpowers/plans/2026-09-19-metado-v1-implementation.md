@@ -2153,8 +2153,8 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cli/src/env.rs`
 
-- [ ] Implement env: output requested/available permissions, exports, entry table
-- [ ] Commit
+- [x] Implement env: output requested/available permissions, exports, entry table
+- [x] Commit
 
 ### Task 4.7: `mdl trace`
 
