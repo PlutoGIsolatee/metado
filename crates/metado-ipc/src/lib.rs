@@ -4,6 +4,7 @@
 //! 并逐连接驱动 Transport。Android/Windows 传输在宿主无法验证，见 plan 回写。
 
 pub mod jsonrpc;
+pub mod protocol;
 pub mod transport;
 pub mod unix;
 

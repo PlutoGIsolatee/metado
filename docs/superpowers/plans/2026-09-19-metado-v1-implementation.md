@@ -2190,9 +2190,9 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-ipc/src/protocol.rs`
 
-- [ ] Define management methods: loadPlugin, grant, revoke, setLifecycle, invoke, listPlugins, uninstall, purge, registerPermissionSet, setDomainConfig, setActive, trace
-- [ ] Define callbacks: dispatch, notify
-- [ ] Commit
+- [x] Define management methods: loadPlugin, grant, revoke, setLifecycle, invoke, listPlugins, uninstall, purge, registerPermissionSet, setDomainConfig, setActive, trace
+- [x] Define callbacks: dispatch, notify
+- [x] Commit
 
 ### Task 5.4: Android Bound Service Transport
 
@@ -2201,6 +2201,12 @@ git commit -m "feat(executor): implement execution budget"
 
 - [ ] Implement Android bound service IPC
 - [ ] Commit
+
+
+> **宿主不可验证（回写计划）**：Android（Binder/JNI）与 Windows（命名管道）
+> 传输在本宿主（Termux/Linux）无法编译/运行，无法 TDD。按"质量与正确性优先"
+> 原则延后到具备对应目标机的环节；Transport trait 与帧协议（5.1/5.2 已实现）
+> 即为二者载体。Unix 传输是 Termux 主机进程间通信的落地路径（5.6 依赖）。
 
 ### Task 5.5: Windows Named Pipe Transport
 
