@@ -1,0 +1,10 @@
+[package]
+name = "metado-daemon"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+metado-engine = { path = "../../crates/metado-engine" }
+metado-executor = { path = "../../crates/metado-executor" }
+metado-ipc = { path = "../../crates/metado-ipc" }
+serde_json = { workspace = true }

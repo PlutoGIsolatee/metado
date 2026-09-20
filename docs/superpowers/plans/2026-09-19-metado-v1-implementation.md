@@ -2173,9 +2173,9 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-ipc/src/transport.rs`, `crates/metado-ipc/src/unix.rs`
 
-- [ ] Implement Transport trait: `send()`, `receive()`, `close()`
-- [ ] Implement UDS transport for Linux/macOS
-- [ ] Commit
+- [x] Implement Transport trait: `send()`, `receive()`, `close()`
+- [x] Implement UDS transport for Linux/macOS
+- [x] Commit
 
 ### Task 5.2: JSON-RPC 2.0 Codec
 

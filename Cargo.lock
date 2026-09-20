@@ -1263,6 +1263,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "metado-daemon"
+version = "0.1.0"
+dependencies = [
+ "metado-engine",
+ "metado-executor",
+ "metado-ipc",
+ "serde_json",
+]
+
+[[package]]
 name = "metado-engine"
 version = "0.1.0"
 dependencies = [
@@ -1283,6 +1293,14 @@ version = "0.1.0"
 dependencies = [
  "boa_engine",
  "metado-engine",
+]
+
+[[package]]
+name = "metado-ipc"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
