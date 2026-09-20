@@ -8,11 +8,13 @@
 mod env;
 mod run;
 mod test;
+mod trace;
 mod watch;
 
 pub use env::{env_mdl, exported_namespaces, registry_permissions, EnvReport};
 pub use run::{run_mdl, RunOutcome};
 pub use test::{test_mdl, TestOutcome};
+pub use trace::{trace_mdl, TraceLine};
 pub use watch::{build_and_run, WatchScheduler};
 #[cfg(feature = "watch")]
 pub use watch::run_watch;

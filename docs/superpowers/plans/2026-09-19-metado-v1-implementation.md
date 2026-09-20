@@ -2161,8 +2161,8 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cli/src/trace.rs`
 
-- [ ] Implement trace: display trace events, filter by type, JSON output
-- [ ] Commit
+- [x] Implement trace: display trace events, filter by type, JSON output
+- [x] Commit
 
 ---
 

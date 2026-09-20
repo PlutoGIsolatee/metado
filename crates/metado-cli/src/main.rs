@@ -43,6 +43,16 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// 执行轨迹观测（§12.6）
+    Trace {
+        file: PathBuf,
+        /// 只保留指定类型事件（EntryStart/EntryEnd/CapabilityCall/PermissionCheck/ValueFlow）
+        #[arg(long)]
+        filter: Option<String>,
+        /// JSON 输出
+        #[arg(long)]
+        json: bool,
+    },
     /// 在进程内运行插件（invoke boot 入口）
     Run {
         file: PathBuf,
@@ -190,6 +200,23 @@ fn run(cli: Cli) -> Result<(), String> {
                 println!("entries     {}", report.entries.iter().map(|(n, e)| format!("{}->{}", n, e)).collect::<Vec<_>>().join(", "));
                 if !report.ungranted_requests.is_empty() {
                     println!("!!! missing host capability: {}", report.ungranted_requests.join(", "));
+                }
+            }
+            Ok(())
+        }
+
+        Command::Trace { file, filter, json } => {
+            let bytes = std::fs::read(&file).map_err(|e| format!("read {}: {}", file.display(), e))?;
+            let lines = metado_cli::trace_mdl(&bytes, &[], filter.as_deref())?;
+            if json {
+                let arr: Vec<serde_json::Value> = lines.iter().map(|l| l.to_json()).collect();
+                println!("{}", serde_json::to_string_pretty(&serde_json::Value::Array(arr)).unwrap());
+            } else {
+                if lines.is_empty() {
+                    println!("(no events recorded)");
+                }
+                for line in &lines {
+                    println!("{:<16} {}", line.kind(), line.detail());
                 }
             }
             Ok(())

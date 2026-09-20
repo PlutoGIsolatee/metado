@@ -14,7 +14,7 @@ use boa_engine::builtins::promise::PromiseState;
 use boa_engine::module::{ModuleLoader, ModuleRequest, Referrer};
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsString, JsValue, Module, Source};
 
-use metado_engine::Value;
+use metado_engine::{TraceEvent, Value};
 
 /// 容器文件访问器：入参为容器内相对路径（无前导 `/`）。
 pub type FilesFn = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
@@ -38,8 +38,13 @@ pub fn runtime_namespaces(available: &[String]) -> Vec<String> {
 struct PluginModuleLoader {
     files: FilesFn,
     runtime_exports: Vec<String>,
+    /// 轨迹钩子（§12.6）：记录 capability 调用与值流转；None = 不记录。
+    trace: RefCell<Option<Rc<RefCell<dyn FnMut(TraceEvent)>>>>,
     cache: RefCell<HashMap<PathBuf, Module>>,
 }
+
+/// 轨迹钩子（§12.6）：每事件一次回调。
+pub type TraceHook = Box<dyn FnMut(TraceEvent)>;
 
 impl PluginModuleLoader {
     fn runtime_module(&self, context: &mut Context) -> JsResult<Module> {
@@ -49,14 +54,24 @@ impl PluginModuleLoader {
         }
         let names: Vec<JsString> = self.runtime_exports.iter().map(|n| JsString::from(n.as_str())).collect();
         let export_names = self.runtime_exports.clone();
+        let trace = self.trace.borrow().clone();
         // 初始化的 export 值：v1 为 stub 函数（返回 undefined；调用体在 Phase 5）。
-        // 闭包只捕获 String（非 GC 可追踪类型），from_closure 安全。stub 经 eval 创建，
-        // 绕开 0.22 NativeFunction -> JsValue 的构造细节。
+        // 闭包只捕获 String/Rc（非 GC 可追踪类型），from_closure 安全。stub 经 eval 创建，
+        // 绕开 0.22 NativeFunction -> JsValue 的构造细节。每个导出记录一条 CapabilityCall 轨迹。
         let initializer = unsafe {
             boa_engine::module::SyntheticModuleInitializer::from_closure(
                 move |module, ctx| {
-                    let stub = ctx.eval(Source::from_bytes("(function () {})"))?;
                     for name in &export_names {
+                        if let Some(t) = trace.as_ref() {
+                            (t.borrow_mut())(TraceEvent::CapabilityCall {
+                                module: RUNTIME_SPEC.into(),
+                                line: 0,
+                                capability: name.clone(),
+                                requested: export_names.clone(),
+                                granted: export_names.clone(),
+                            });
+                        }
+                        let stub = ctx.eval(Source::from_bytes("(function () {})"))?;
                         module.set_export(&JsString::from(name.as_str()), stub.clone())?;
                     }
                     Ok(())
@@ -156,23 +171,30 @@ pub struct PluginRuntime {
 }
 
 impl PluginRuntime {
-    pub fn new(available: &[String], granted: &[String], files: FilesFn) -> Result<Self, String> {
-        let namespaces = runtime_namespaces(available);
+    /// `exported`：`@metado/runtime` 实际导出的命名空间（§4.3 由宿主裁定 = requested ∩ available，v1 恒含 metado）。
+    /// 容器访问经 `files`；权限放行（granted 裁决）在能力函数体，Phase 5 接入。
+    pub fn new(exported: &[String], files: FilesFn) -> Result<Self, String> {
         let loader = Rc::new(PluginModuleLoader {
             files,
-            runtime_exports: namespaces,
+            runtime_exports: exported.to_vec(),
+            trace: RefCell::new(None),
             cache: RefCell::new(HashMap::new()),
         });
         let context = Context::builder()
             .module_loader(loader.clone())
             .build()
             .map_err(|e| format!("runtime context: {}", e))?;
-        let _ = granted;
         Ok(Self {
             context,
             loader,
             entry: None,
         })
+    }
+
+    /// 挂接轨迹钩子（记录 capability 调用、入口起止、值流转）。
+    pub fn set_trace(&mut self, hook: TraceHook) {
+        let rc = Rc::new(RefCell::new(hook));
+        *self.loader.trace.borrow_mut() = Some(rc);
     }
 
     /// 载入容器根模块（`src/main.js`），link + evaluate（含 `@metado/runtime` 解析）。
@@ -219,9 +241,19 @@ impl PluginRuntime {
             format!("'{}' is not a function on the default export", method)
         })?;
         let js_args: Vec<JsValue> = args.iter().map(value_to_js).collect();
+        if let Some(t) = self.loader.trace.borrow().as_ref() {
+            let mut t = t.borrow_mut();
+            t(TraceEvent::EntryStart { entry: method.to_string() });
+            t(TraceEvent::ValueFlow { direction: "in".into(), size_hint: js_args.len() });
+        }
         let result = callable
             .call(&JsValue::from(default_obj), &js_args, &mut self.context)
             .map_err(|e| format!("call {}: {}", method, e))?;
+        if let Some(t) = self.loader.trace.borrow().as_ref() {
+            let mut t = t.borrow_mut();
+            t(TraceEvent::ValueFlow { direction: "out".into(), size_hint: 1 });
+            t(TraceEvent::EntryEnd { entry: method.to_string() });
+        }
         Ok(js_to_value(&result))
     }
 }
