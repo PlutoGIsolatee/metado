@@ -1,0 +1,15 @@
+[package]
+name = "metado-contract"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+metado-engine = { path = "../../crates/metado-engine" }
+metado-executor = { path = "../../crates/metado-executor" }
+metado-cli = { path = "../../crates/metado-cli" }
+metado-daemon = { path = "../../crates/metado-daemon" }
+metado-ipc = { path = "../../crates/metado-ipc" }
+serde_json = { workspace = true }
+hex = { workspace = true }
+zip = { workspace = true }

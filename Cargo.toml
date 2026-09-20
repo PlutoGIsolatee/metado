@@ -12,6 +12,7 @@ members = [
     "crates/metado-cli",
     "crates/metado-ipc",
     "crates/metado-daemon",
+    "tests/contract",
 ]
 
 [workspace.dependencies]

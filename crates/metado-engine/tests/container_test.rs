@@ -45,6 +45,6 @@ fn test_path_traversal_blocked() {
     zip.write_all(b"evil").unwrap();
     let data = zip.finish().unwrap().into_inner();
 
-    let c = Container::from_bytes(&data).unwrap();
-    assert!(c.read_file("../../../etc/passwd").is_err()); // 路径穿越被拒
+    let c = Container::from_bytes(&data);
+    assert!(c.is_err(), "path traversal entry must be rejected at ingestion");
 }

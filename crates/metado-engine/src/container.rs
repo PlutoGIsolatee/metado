@@ -20,6 +20,9 @@ impl Container {
             }
 
             let name = file.name().to_string();
+            if name.contains("..") || name.starts_with('/') {
+                return Err(format!("path traversal entry rejected: {}", name));
+            }
             let mut content = Vec::new();
             file.read_to_end(&mut content)
                 .map_err(|e| format!("read error: {}", e))?;

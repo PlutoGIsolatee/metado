@@ -176,13 +176,15 @@ impl Daemon {
                     .records
                     .values()
                     .map(|r| {
+                        let mut names: Vec<&String> = r.manifest.entries.keys().collect();
+                        names.sort();
                         json!({
                             "id": r.name,
                             "name": r.name,
                             "signer": r.signer,
                             "active": r.active,
                             "granted": r.granted,
-                            "entries": r.manifest.entries.keys().collect::<Vec<_>>(),
+                            "entries": names,
                             "version": self.version,
                         })
                     })
@@ -297,7 +299,18 @@ impl Daemon {
                 }));
                 rt.load("src/main.js").map_err(|e| format!("load: {}", e))?;
                 let _ = rt.call_default(&boot, vec![]);
-                let evs = events.borrow().clone();
+                let mut evs = events.borrow().clone();
+                for e in evs.iter_mut() {
+                    let kind = match e {
+                        Value::Object(m) if m.contains_key("EntryStart") => "EntryStart",
+                        Value::Object(m) if m.contains_key("EntryEnd") => "EntryEnd",
+                        Value::Object(m) if m.contains_key("CapabilityCall") => "CapabilityCall",
+                        Value::Object(m) if m.contains_key("PermissionCheck") => "PermissionCheck",
+                        Value::Object(m) if m.contains_key("ValueFlow") => "ValueFlow",
+                        _ => "Event",
+                    };
+                    e["kind"] = Value::String(kind.into());
+                }
                 Ok(Value::Array(evs))
             }
             other => Err(format!("unknown method {}", other)),

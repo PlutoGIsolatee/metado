@@ -2258,14 +2258,15 @@ git commit -m "feat(executor): implement execution budget"
 ### Task 6.4: Contract Test Suite
 
 **Files:**
-- Create: `tests/contract/`
+- Create: `tests/contract/` (workspace member `metado-contract`)
 
-- [ ] CLI vs production behavior alignment tests
-- [ ] Permission model tests (requested/granted/available)
-- [ ] Lifecycle state machine tests
-- [ ] Signature verification tests
-- [ ] Container format tests
-- [ ] Commit
+- [x] CLI vs production behavior alignment tests (invoke/list/revoke/test/trace)
+- [x] Permission model tests (requested/granted/available → exported, §4.3)
+- [x] Lifecycle state machine tests (illegal transitions rejected, terminal uninstall)
+- [x] Signature verification tests (bit-flip / re-sign / wrong key / signer id)
+- [x] Container format tests (`../` traversal rejected at ingestion, missing `mdl.toml`)
+- [x] Custom capability host-registration contract (CapabilitySet trait)
+- [x] Commit
 
 ---
 
