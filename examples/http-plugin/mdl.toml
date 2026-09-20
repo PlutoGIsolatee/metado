@@ -1,0 +1,10 @@
+name = "httpp"
+version = "1.0.0"
+description = "HTTP capability gating demo (Task 6.2)"
+permission = ["log.info"]
+
+[entries.boot]
+export = "boot"
+
+[entries.test]
+export = "test"

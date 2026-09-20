@@ -2233,27 +2233,27 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `examples/hello-plugin/`
 
-- [ ] Minimal plugin with onMessage entry
-- [ ] Verify: `mdl build && mdl run --grant=*`
-- [ ] Commit
+- [x] Minimal plugin with onMessage entry
+- [x] Verify: `mdl build && mdl run --grant=*`
+- [x] Commit
 
 ### Task 6.2: HTTP Plugin Example
 
 **Files:**
 - Create: `examples/http-plugin/`
 
-- [ ] Plugin using http.get capability
-- [ ] Verify: permission denied without grant, success with grant
-- [ ] Commit
+- [x] Plugin using http.get capability
+- [x] Verify: permission denied without grant, success with grant
+- [x] Commit
 
 ### Task 6.3: Capability Developer Example
 
 **Files:**
 - Create: `examples/custom-cap-plugin/`
 
-- [ ] Host developer custom capability via `#[capability]` macro
-- [ ] Verify: capability message dispatch works
-- [ ] Commit
+- [x] Host developer custom capability via `#[capability]` macro
+- [x] Verify: capability message dispatch works
+- [x] Commit
 
 ### Task 6.4: Contract Test Suite
 

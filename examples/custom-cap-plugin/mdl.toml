@@ -1,0 +1,7 @@
+name = "alert"
+version = "1.0.0"
+description = "Custom capability host-extension demo (Task 6.3)"
+permission = ["custom.alert", "log.info"]
+
+[entries.test]
+export = "test"

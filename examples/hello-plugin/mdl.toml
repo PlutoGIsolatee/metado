@@ -1,0 +1,10 @@
+name = "hello"
+version = "1.0.0"
+description = "Metado hello plugin (Task 6.1)"
+permission = ["log.info"]
+
+[entries.boot]
+export = "boot"
+
+[entries.onMessage]
+export = "onMessage"
