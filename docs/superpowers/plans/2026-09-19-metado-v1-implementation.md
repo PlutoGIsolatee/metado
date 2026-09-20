@@ -2111,17 +2111,17 @@ git commit -m "feat(executor): implement execution budget"
 **Files:**
 - Create: `crates/metado-cli/src/main.rs`, `crates/metado-cli/src/build.rs`
 
-- [ ] Implement build: read plugin dir → assemble ZIP → sign → output .mdl
-- [ ] Commit
+- [x] Implement build: read plugin dir → assemble ZIP → sign → output .mdl
+- [x] Commit
 
 ### Task 4.2: `mdl sign` + `mdl verify`
 
 **Files:**
 - Create: `crates/metado-cli/src/sign.rs`, `crates/metado-cli/src/verify.rs`
 
-- [ ] Implement sign: attach signature to .mdl
-- [ ] Implement verify: check signature without extracting payload
-- [ ] Commit
+- [x] Implement sign: attach signature to .mdl
+- [x] Implement verify: check signature without extracting payload
+- [x] Commit
 
 ### Task 4.3: `mdl run`
 

@@ -9,6 +9,7 @@ members = [
     "crates/metado-cap-storage",
     "crates/metado-cap-file",
     "crates/metado-cap-http",
+    "crates/metado-cli",
 ]
 
 [workspace.dependencies]

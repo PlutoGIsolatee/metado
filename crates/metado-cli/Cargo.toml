@@ -1,0 +1,15 @@
+[package]
+name = "metado-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mdl"
+path = "src/main.rs"
+
+[dependencies]
+metado-engine = { path = "../metado-engine" }
+clap = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+zip = { workspace = true }
