@@ -1263,6 +1263,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "metado-contract"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "metado-cli",
+ "metado-daemon",
+ "metado-engine",
+ "metado-executor",
+ "metado-ipc",
+ "serde_json",
+ "zip",
+]
+
+[[package]]
 name = "metado-daemon"
 version = "0.1.0"
 dependencies = [
