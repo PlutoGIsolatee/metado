@@ -1,6 +1,10 @@
-//! `mdl run` 主机接线（Task 4.3）：验签 → 注册内置能力 → load → grant → activate → invoke boot 入口。
-//! 授权策略（v1）：manifest 声明的 permission ∪ `--grant` 模拟授权；permission-set 名展开由权限解析器承接。
+//! `mdl run` 主机接线（Task 4.3 → Phase 6 强化）：验签 → 注册内置能力 → engine 生命周期
+//! （load → activate）→ `--grant` 并集 → PluginRuntime 真实 ESM 执行 boot 入口。
+//! 授权策略（v1）：granted = manifest.permission ∪ `--grant`；导出命名空间 = requested ∩ available（§4.3）。
 
+use std::collections::HashMap;
+
+use crate::env::{exported_namespaces, registry_permissions};
 use metado_cap_crypto::MetaCrypto;
 use metado_cap_file::MetaFile;
 use metado_cap_http::MetaHttp;
@@ -8,6 +12,7 @@ use metado_cap_log::MetaLog;
 use metado_cap_storage::MetaStorage;
 use metado_cap_time::MetaTime;
 use metado_engine::{signer_id, Container, Engine, Manifest, SignedBundle, Value};
+use metado_executor::PluginRuntime;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RunOutcome {
@@ -18,8 +23,8 @@ pub struct RunOutcome {
     pub result: Value,
 }
 
-/// 内置能力全集（v1 host）——注册后 `available` 完整、`granted ⊆ available` 才放行。
-fn register_builtins(engine: &mut Engine) {
+/// 内置能力全集（v1 host）——注册后 `available` 完整。
+pub fn register_builtins(engine: &mut Engine) {
     for cap in [
         Box::new(MetaLog) as Box<dyn metado_engine::CapabilitySet>,
         Box::new(MetaTime),
@@ -44,51 +49,54 @@ pub fn run_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<RunOutcome, Strin
     let mut engine = Engine::new();
     register_builtins(&mut engine);
 
-    // granted = 插件声明 ∪ CLI 模拟授权
+    // granted = 插件声明 ∪ CLI 模拟授权（permission-set 名展开由权限解析器承接，v1 保守保留 token）
     let mut granted = manifest.permission.clone();
     granted.extend(extra_grant.iter().cloned());
-    granted.extend(
-        manifest
-            .permission_set
-            .iter()
-            .flat_map(|set| resolve_path_dots(set)),
-    );
 
     engine.load_plugin(&bundle, granted)?;
     let plugin_id = manifest.name.clone();
     engine.activate(&plugin_id)?;
 
-    let boot_export = manifest
-        .entries
-        .get("boot")
-        .map(|e| e.export.clone());
+    let signer = signer_id(&bundle.signer_pubkey());
+    let boot_export = manifest.entries.get("boot").map(|e| e.export.clone());
 
-    match boot_export {
-        Some(entry) => {
-            let result = engine
-                .invoke(&plugin_id, &entry, Value::Null)
-                .map_err(|e| e.message)?;
-            Ok(RunOutcome {
+    let boot_export = match boot_export {
+        Some(entry) => entry,
+        None => {
+            return Ok(RunOutcome {
                 plugin_id,
-                signer: signer_id(&bundle.signer_pubkey()),
-                entry,
-                invoked: true,
-                result,
-            })
+                signer,
+                entry: String::new(),
+                invoked: false,
+                result: Value::Null,
+            });
         }
-        None => Ok(RunOutcome {
-            plugin_id,
-            signer: signer_id(&bundle.signer_pubkey()),
-            entry: String::new(),
-            invoked: false,
-            result: Value::Null,
-        }),
-    }
-}
+    };
 
-/// 权限集名展开辅助：`storage` → `storage.<signer>.read/write` 等价族（v1 保守展开，仅保留原 token 校验）。
-fn resolve_path_dots(set: &str) -> Vec<String> {
-    // permission-set 名由宿主 define_permission_set 预定义；
-    // v1 CLI 无宿主策略文件，声明即保留（权限解析器校验 granted ⊆ available 兼容）。
-    vec![set.to_string()]
+    // 执行面：真实 ESM 容器（与 mdl test/trace/daemon 一致）
+    let available = registry_permissions();
+    let mut requested = manifest.permission.clone();
+    requested.extend(extra_grant.iter().cloned());
+    let exported = exported_namespaces(&requested, &available);
+
+    let files: HashMap<String, Vec<u8>> = container
+        .files()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let files = Box::new(move |rel: &str| files.get(rel).cloned());
+
+    let mut rt = PluginRuntime::new(&exported, files)?;
+    rt.load("src/main.js")
+        .map_err(|e| format!("load entry src/main.js: {}", e))?;
+    let result = rt
+        .call_default(&boot_export, vec![])
+        .map_err(|e| format!("call {}: {}", boot_export, e))?;
+
+    Ok(RunOutcome {
+        plugin_id,
+        signer,
+        entry: boot_export,
+        invoked: true,
+        result,
+    })
 }

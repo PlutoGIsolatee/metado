@@ -1,7 +1,8 @@
 //! Task 4.3: mdl run 主机接线测试
+//! v1 执行语义：真实 ESM（PluginRuntime），与 mdl test/trace/daemon 一致。
 
 use metado_cli::{build_plugin, run_mdl};
-use metado_engine::KeyPair;
+use metado_engine::{KeyPair, Value};
 
 static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
@@ -51,7 +52,37 @@ fn test_run_activates_and_invokes_boot() {
     let outcome = run_mdl(&bytes, &[]).unwrap();
     assert_eq!(outcome.plugin_id, "demo");
     assert_eq!(outcome.entry, "boot");
-    assert_eq!(outcome.result, metado_engine::Value::Null);
+    assert_eq!(outcome.invoked, true);
+    assert_eq!(outcome.result, Value::String("hello".to_string()));
+}
+
+#[test]
+fn test_run_real_esm_imports_runtime() {
+    let dir = TempDir::new("metado-cli-run").unwrap();
+    let root = dir.path().join("plugin");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("mdl.toml"),
+        "name = \"esm\"\nversion = \"1.0.0\"\npermission = [\"storage.read\", \"log.info\"]\n\
+         [entries.boot]\nexport = \"boot\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/main.js"),
+        "import { storage, log } from \"@metado/runtime\";\n\
+         export default { boot() { return typeof storage + \"/\" + typeof log; } };\n",
+    )
+    .unwrap();
+    let bytes = build_plugin(&root, &KeyPair::generate()).unwrap();
+
+    // 未请求 http → 不导出；请求的 storage/log → 导出（stub 类型 function）
+    let outcome = run_mdl(&bytes, &[]).unwrap();
+    assert_eq!(outcome.result, Value::String("function/function".to_string()));
+
+    // 显式 --grant 只能追加已请求；未请求的 http 不因 grant 单列出现
+    // （导出集合以 requested=次为准，extra_grant 并入 requested）
+    let outcome = run_mdl(&bytes, &["http.fetch".to_string()]).unwrap();
+    assert_eq!(outcome.result, Value::String("function/function".to_string()));
 }
 
 #[test]
