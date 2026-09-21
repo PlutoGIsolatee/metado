@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 metado-engine = { path = "../metado-engine" }
 boa_engine = { workspace = true }
+serde_json = { workspace = true }

@@ -1,6 +1,6 @@
 # @metado/runtime Export Spec v1
 
-日期：2026-09-19
+日期：2026-09-19（2026-09-21 修订：metado 节、custom 改写、拒绝语义、权限匹配规则）
 状态：锁定
 
 > 本规格锁定 v1 `@metado/runtime` 导出清单，作为引擎侧虚拟模块实现的验收标准。
@@ -11,7 +11,22 @@
 2. **Node whitelist shim 保持 Node 形状**：Buffer/path/events，为 npm 互操作
 3. **无标准可依处局部自研最小面**：storage 的 signer 命名空间、vfs、time/log、capability dispatch
 4. **只镜像形状，不镜像权限语义**：每次调用仍过 realm 授权视图
-5. **导出存在性 = 静态面（`available`），调用放行 = 动态面（`granted`）**
+5. **导出存在性 = 命名空间级静态面**（请求命名空间 ∈ 宿主可用命名空间 → 导出对象存在，
+   恒含 `metado`）；**调用放行 = 方法级动态面**（`ns.method` 对 granted 段级匹配）
+6. **拒绝语义**：未放行 → 异步形状（Promise 返回）`Promise.reject(PermissionDeniedError)`，
+   同步形状（log/time.now/crypto.randomBytes）同步 throw；放行 → v1 stub 值（真实实现 Phase 5 接入）
+
+## 权限匹配规则
+
+`granted` 中任一模式 `g` 授权调用键 `ns.method` 当且仅当：
+
+- `ns.method` 是 `g` 的**段前缀**（`g` 分段后以 `ns.method` 各段开头，含等长），或
+- `g` 以尾段 `*` 收尾且 `ns.method` 以 `g` 去掉尾段 `*` 的段前缀开头（贪心覆盖 `example.com`
+  这类含 `.` 的多段域名/路径）
+
+`*` 段与 `<...>` 段（signer 模板）通配任意单段。例：授权 `http.get.api.*` ⇒ 调用 `http.get`
+可用（域名细分在后端裁决）；授权 `storage.<signer>.read` ⇒ `storage.read` 可用。请求键深于授权
+模式（段数更多）且无尾段 `*` 一律拒绝。
 
 ## 导出清单
 
@@ -42,6 +57,8 @@ Keyspace:
 | `read(path: string): Promise<Uint8Array>` | 自研 | read-only vfs |
 | `stat(path: string): Promise<{size: number, mtime: number}>` | 自研 | |
 
+权限名: `file.read`, `file.stat`
+
 ### time
 
 | Export | Shape | Notes |
@@ -70,7 +87,13 @@ Keyspace:
 
 | Export | Shape | Notes |
 |--------|-------|-------|
-| `dispatch(name: string, params: JsonValue): Promise<JsonValue>` | 自研 | capability message, v1 单次 Request-Response |
+| `dispatch(name: string, params: JsonValue): Promise<JsonValue>` | 自研 | capability message, v1 单次 Request-Response；permission = `custom.<name>`，细分在真实实现按 name 裁决 |
+
+### metado
+
+| Export | Shape | Notes |
+|--------|-------|-------|
+| `custom(name: string, params: JsonValue): Promise<JsonValue>` | 自研 | 宿主通用调用入口（恒导出）；`custom.dispatch` 的别名 |
 
 ### Buffer/path/events (shim)
 
@@ -85,7 +108,7 @@ Keyspace:
 | Class | extends | Fields |
 |-------|---------|--------|
 | `ExecutionError` | Error | `entry: string`, `kind: string`, `message: string` |
-| `PermissionDenied` | ExecutionError | `permission: string` |
+| `PermissionDeniedError` | ExecutionError | `permission: string` |
 
 ## 引擎实现映射
 
@@ -104,6 +127,7 @@ Keyspace:
 | crypto.sha256() | sha2 crate | metado-cap-crypto | |
 | crypto.hmac() | hmac crate | metado-cap-crypto | |
 | custom.dispatch() | IPC dispatch callback | metado-engine | v1 单次 Request-Response |
+| metado.custom() | `custom.dispatch` 别名 | metado-engine | 恒导出 |
 | Buffer | boa polyfill | metado-executor | 仅形状, 不承诺 Node 行为 |
 | path | boa polyfill | metado-executor | |
 | events | boa polyfill | metado-executor | EventEmitter 最小面 |
@@ -111,7 +135,7 @@ Keyspace:
 ## 使用示例
 
 ```js
-import { http, storage, log, Buffer } from "@metado/runtime";
+import { http, storage, log, metado, Buffer } from "@metado/runtime";
 
 export async function onMessage(input) {
   log.info("Received:", input);
@@ -122,6 +146,9 @@ export async function onMessage(input) {
 
   // Storage (需 storage.write 权限)
   await storage.write("cache/data", new TextEncoder().encode(JSON.stringify(data)));
+
+  // metado.custom = custom.dispatch 别名（宿主通用入口）
+  await metado.custom("alert", { level: "info" });
 
   // Buffer (shim, 无需权限)
   const buf = Buffer.from("hello");

@@ -25,7 +25,7 @@ impl Drop for TempDir {
 fn test_meta() {
     let meta = MetaFile.meta();
     assert_eq!(meta.name, "file");
-    for perm in ["file.read", "file.readText"] {
+    for perm in ["file.read", "file.stat"] {
         assert!(meta.permissions.contains(&perm.to_string()), "missing {}", perm);
     }
 }

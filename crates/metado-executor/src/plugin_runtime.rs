@@ -1,8 +1,10 @@
 //! 插件真实执行运行时（boa ESM）：容器文件树 + `@metado/runtime` 合成虚拟模块。
 //! - 根模块从容器文件载入，相对 import（`./x.js`）经自定义 loader 解析容器内路径
-//! - `@metado/runtime` = SyntheticModule，导出名 = available 能力命名空间
-//!   （§4.3：未请求的能力导出不存在；调用放行由 granted 决定 → v1 函数体为 stub，Phase 5 接真体）
-//! - 顶层 `default` 导出对象的方法经 `call_default` 调用
+//! - `@metado/runtime` = SyntheticModule，导出**命名空间对象**（方法函数面，§runtime-export-spec）
+//!   - 导出存在性 = 命名空间级静态面（宿主裁定 exported，含恒在的 metado）
+//!   - 调用放行 = 方法级动态面：未放行 → 异步形状 `Promise.reject(PermissionDenied)`，
+//!     同步形状（log/time.now/crypto.randomBytes）同步 throw；放行 → v1 stub 值（Phase 5 接真体）
+//! - 顶层 `default` 导出对象的方法经 `call_default` 调用；异步入口会 pump job 队列并读 Promise 状态
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -12,33 +14,65 @@ use std::rc::Rc;
 
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::module::{ModuleLoader, ModuleRequest, Referrer};
+use boa_engine::object::builtins::JsPromise;
 use boa_engine::{js_string, Context, JsNativeError, JsResult, JsString, JsValue, Module, Source};
 
-use metado_engine::{TraceEvent, Value};
+use metado_engine::{grants_allow, TraceEvent, Value};
 
 /// 容器文件访问器：入参为容器内相对路径（无前导 `/`）。
 pub type FilesFn = Box<dyn Fn(&str) -> Option<Vec<u8>>>;
 
 const RUNTIME_SPEC: &str = "@metado/runtime";
 
-/// 由 available 权限推导 `@metado/runtime` 导出名（能力命名空间集合）。
-/// 永远追加 `metado`（通用调用入口，宿主内建）。
-pub fn runtime_namespaces(available: &[String]) -> Vec<String> {
-    let mut namespaces: Vec<String> = available
-        .iter()
-        .map(|a| a.split('.').next().unwrap_or("").to_string())
-        .filter(|n| !n.is_empty())
-        .collect();
-    namespaces.push("metado".into());
-    namespaces.sort();
-    namespaces.dedup();
-    namespaces
+/// 同步形状（调用放行失败时同步 throw）：log 全方法、time.now、crypto.randomBytes。
+fn is_promise_style(ns: &str, method: &str) -> bool {
+    match (ns, method) {
+        ("log", _) | ("time", "now") | ("crypto", "randomBytes") => false,
+        _ => true,
+    }
+}
+
+/// 恒放行的宿主命名空间：metado（host builtin 通用入口）与 custom（真实实现按 dispatch name 裁决）。
+fn always_allowed(ns: &str) -> bool {
+    ns == "metado" || ns == "custom"
+}
+
+/// 方法级放行裁决：非恒放行命名空间走 granted 模式匹配。
+fn is_allowed(ns: &str, method: &str, granted: &[String]) -> bool {
+    always_allowed(ns) || grants_allow(granted, &format!("{}.{}", ns, method))
+}
+
+/// 从 available 权限面推导命名空间 → 方法集合。custom 固定为 dispatch、metado 固定为 custom。
+fn build_ns_methods(surface: &[String]) -> HashMap<String, Vec<String>> {
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for perm in surface {
+        let mut it = perm.split('.');
+        let ns = it.next().unwrap_or("");
+        let method = it.next().unwrap_or("");
+        if !ns.is_empty() && !method.is_empty() {
+            map.entry(ns.to_string()).or_default().push(method.to_string());
+        }
+    }
+    map.insert("custom".into(), vec!["dispatch".into()]);
+    map.insert("metado".into(), vec!["custom".into()]);
+    for methods in map.values_mut() {
+        methods.sort();
+        methods.dedup();
+    }
+    map
 }
 
 struct PluginModuleLoader {
     files: FilesFn,
+    /// `@metado/runtime` 实际导出的命名空间（含恒在的 metado）。
     runtime_exports: Vec<String>,
-    /// 轨迹钩子（§12.6）：记录 capability 调用与值流转；None = 不记录。
+    /// 调用期授权模式集（方法级放行裁决输入）。
+    granted: Vec<String>,
+    /// 形状工厂 JSON 源（`ns.method → {a: allowed, p: promise-style}`），经 serde 编码防注入。
+    spec_json: String,
+    /// 命名空间 → 方法集合（工厂与轨迹使用）。
+    ns_methods: HashMap<String, Vec<String>>,
+    /// 轨迹钩子（§12.6）：记录 capability 调用与权限裁决；None = 不记录。
     trace: RefCell<Option<Rc<RefCell<dyn FnMut(TraceEvent)>>>>,
     cache: RefCell<HashMap<PathBuf, Module>>,
 }
@@ -52,27 +86,62 @@ impl PluginModuleLoader {
         if let Some(m) = self.cache.borrow().get(&path) {
             return Ok(m.clone());
         }
-        let names: Vec<JsString> = self.runtime_exports.iter().map(|n| JsString::from(n.as_str())).collect();
+        let names: Vec<JsString> = self
+            .runtime_exports
+            .iter()
+            .map(|n| JsString::from(n.as_str()))
+            .collect();
         let export_names = self.runtime_exports.clone();
+        let ns_methods = self.ns_methods.clone();
+        let spec_json = self.spec_json.clone();
+        let granted = self.granted.clone();
         let trace = self.trace.borrow().clone();
-        // 初始化的 export 值：v1 为 stub 函数（返回 undefined；调用体在 Phase 5）。
-        // 闭包只捕获 String/Rc（非 GC 可追踪类型），from_closure 安全。stub 经 eval 创建，
-        // 绕开 0.22 NativeFunction -> JsValue 的构造细节。每个导出记录一条 CapabilityCall 轨迹。
+
+        // 形状工厂经 eval 建立（绕开 0.22 NativeFunction -> JsValue 的构造细节），
+        // 权限/形状以 serde_json JSON 编码嵌入（注入安全）。闭包只捕获非 GC 类型。
         let initializer = unsafe {
             boa_engine::module::SyntheticModuleInitializer::from_closure(
                 move |module, ctx| {
-                    for name in &export_names {
-                        if let Some(t) = trace.as_ref() {
-                            (t.borrow_mut())(TraceEvent::CapabilityCall {
-                                module: RUNTIME_SPEC.into(),
-                                line: 0,
-                                capability: name.clone(),
-                                requested: export_names.clone(),
-                                granted: export_names.clone(),
-                            });
+                    let src = format!(
+                        "globalThis.__metadoShape = (() => {{\n\
+                         const s = {spec_json};\n\
+                         const deny = (cap) => {{ const e = new Error('permission denied: ' + cap); e.name = 'PermissionDenied'; return e; }};\n\
+                         const mk = (a, p, cap) => p ? function () {{ return a ? Promise.resolve(void 0) : Promise.reject(deny(cap)); }}\n\
+                         : function () {{ if (!a) throw deny(cap); return void 0; }};\n\
+                         const out = {{}};\n\
+                         for (const ns in s) {{ const o = {{}}; for (const m in s[ns]) o[m] = mk(s[ns][m].a, s[ns][m].p, ns + '.' + m); out[ns] = o; }}\n\
+                         return out;\n\
+                         }})();"
+                    );
+                    ctx.eval(Source::from_bytes(&src))?;
+                    let shape = ctx
+                        .global_object()
+                        .get(js_string!("__metadoShape"), ctx)?;
+                    let shape = shape
+                        .as_object()
+                        .ok_or_else(|| JsNativeError::error().with_message("shape init failed"))?;
+                    for ns in &export_names {
+                        let key = JsString::from(ns.as_str());
+                        let obj = shape.get(key, ctx)?;
+                        module.set_export(&JsString::from(ns.as_str()), obj)?;
+                        for m in ns_methods.get(ns).cloned().unwrap_or_default() {
+                            let capability = format!("{}.{}", ns, m);
+                            let passed = is_allowed(ns, &m, &granted);
+                            if let Some(t) = trace.as_ref() {
+                                let mut t = t.borrow_mut();
+                                t(TraceEvent::CapabilityCall {
+                                    module: RUNTIME_SPEC.into(),
+                                    line: 0,
+                                    capability: capability.clone(),
+                                    requested: export_names.clone(),
+                                    granted: granted.clone(),
+                                });
+                                t(TraceEvent::PermissionCheck {
+                                    capability: capability.clone(),
+                                    passed,
+                                });
+                            }
                         }
-                        let stub = ctx.eval(Source::from_bytes("(function () {})"))?;
-                        module.set_export(&JsString::from(name.as_str()), stub.clone())?;
                     }
                     Ok(())
                 },
@@ -171,12 +240,21 @@ pub struct PluginRuntime {
 }
 
 impl PluginRuntime {
-    /// `exported`：`@metado/runtime` 实际导出的命名空间（§4.3 由宿主裁定 = requested ∩ available，v1 恒含 metado）。
-    /// 容器访问经 `files`；权限放行（granted 裁决）在能力函数体，Phase 5 接入。
-    pub fn new(exported: &[String], files: FilesFn) -> Result<Self, String> {
+    /// `exported`：`@metado/runtime` 导出的命名空间（命名空间级静态面，恒含 metado）。
+    /// `granted`：调用期放行的权限模式集（方法级裁决）。`surface`：available 权限全集（方法面来源）。
+    pub fn new(exported: &[String], granted: &[String], surface: &[String], files: FilesFn) -> Result<Self, String> {
+        let mut exported = exported.to_vec();
+        if !exported.iter().any(|e| e == "metado") {
+            exported.push("metado".into());
+        }
+        let ns_methods = build_ns_methods(surface);
+        let spec_json = build_spec_json(&exported, granted, &ns_methods);
         let loader = Rc::new(PluginModuleLoader {
             files,
-            runtime_exports: exported.to_vec(),
+            runtime_exports: exported,
+            granted: granted.to_vec(),
+            spec_json,
+            ns_methods,
             trace: RefCell::new(None),
             cache: RefCell::new(HashMap::new()),
         });
@@ -191,7 +269,7 @@ impl PluginRuntime {
         })
     }
 
-    /// 挂接轨迹钩子（记录 capability 调用、入口起止、值流转）。
+    /// 挂接轨迹钩子（记录 capability 调用、权限裁决、入口起止、值流转）。
     pub fn set_trace(&mut self, hook: TraceHook) {
         let rc = Rc::new(RefCell::new(hook));
         *self.loader.trace.borrow_mut() = Some(rc);
@@ -222,6 +300,7 @@ impl PluginRuntime {
     }
 
     /// 调用根模块 default 导出的方法。
+    /// 异步契约（§4.2/§9.1）：pump job 队列；入口返回 Promise → await 到 settled（reject → Err）。
     pub fn call_default(&mut self, method: &str, args: Vec<Value>) -> Result<Value, String> {
         let module = self
             .entry
@@ -249,13 +328,51 @@ impl PluginRuntime {
         let result = callable
             .call(&JsValue::from(default_obj), &js_args, &mut self.context)
             .map_err(|e| format!("call {}: {}", method, e))?;
+        // 异步输入：pump job 队列，入口 Promise 读取真实状态
+        self.context
+            .run_jobs()
+            .map_err(|e| format!("{} jobs: {}", method, e))?;
+        let value = if result.is_promise() {
+            let object = result
+                .as_object()
+                .ok_or_else(|| format!("{} returned promise without object", method))?;
+            let promise = JsPromise::from_object(object)
+                .map_err(|e| format!("{} promise wrap: {}", method, e))?;
+            // await_blocking 泵 job 至 settled；reject 流为 Err。注：永悬 Promise 会挂起（C3 燃料/中断边界外）
+            promise
+                .await_blocking(&mut self.context)
+                .map_err(|e| format!("{} rejected: {}", method, e))?
+        } else {
+            result
+        };
         if let Some(t) = self.loader.trace.borrow().as_ref() {
             let mut t = t.borrow_mut();
             t(TraceEvent::ValueFlow { direction: "out".into(), size_hint: 1 });
             t(TraceEvent::EntryEnd { entry: method.to_string() });
         }
-        Ok(js_to_value(&result))
+        Ok(js_to_value(&value))
     }
+}
+
+/// 形状工厂 JSON：`{ "<ns>": { "<method>": {"a": allowed, "p": promise-style} } }`。
+fn build_spec_json(
+    exported: &[String],
+    granted: &[String],
+    ns_methods: &HashMap<String, Vec<String>>,
+) -> String {
+    let mut spec = serde_json::Map::new();
+    for ns in exported {
+        let methods = ns_methods.get(ns).cloned().unwrap_or_default();
+        let mut m = serde_json::Map::new();
+        for method in methods {
+            let mut entry = serde_json::Map::new();
+            entry.insert("a".to_string(), is_allowed(ns, &method, granted).into());
+            entry.insert("p".to_string(), is_promise_style(ns, &method).into());
+            m.insert(method, serde_json::Value::Object(entry));
+        }
+        spec.insert(ns.clone(), serde_json::Value::Object(m));
+    }
+    serde_json::Value::Object(spec).to_string()
 }
 
 fn js_to_value(val: &JsValue) -> Value {

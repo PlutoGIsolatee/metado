@@ -15,7 +15,10 @@ pub use capability::{CapabilityMeta, CapabilityRegistry, CapabilitySet};
 pub use container::Container;
 pub use error::{ErrorKind, ExecutionError};
 pub use manifest::Manifest;
-pub use permission::{PermissionResolver, PermissionSet};
+pub use permission::{
+    available_namespaces, exported_namespaces, grants_allow, namespace_of, permission_allows,
+    PermissionResolver, PermissionSet,
+};
 pub use plugin::{Plugin, PluginState};
 pub use signature::{signer_id, KeyPair, SignedBundle};
 pub use trace::{TraceEvent, TraceSink};

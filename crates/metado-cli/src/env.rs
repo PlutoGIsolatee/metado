@@ -9,8 +9,9 @@ use metado_cap_http::MetaHttp;
 use metado_cap_log::MetaLog;
 use metado_cap_storage::MetaStorage;
 use metado_cap_time::MetaTime;
-use metado_engine::{CapabilityRegistry, Container, Manifest, SignedBundle};
-use metado_executor::runtime_namespaces;
+use metado_engine::{
+    available_namespaces, namespace_of, CapabilityRegistry, Container, Manifest, SignedBundle,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnvReport {
@@ -42,14 +43,20 @@ pub fn registry_permissions() -> Vec<String> {
     reg.all_permissions()
 }
 
-/// 实际导出命名空间 = (requested ∩ available) 的命名空间 ∪ { metado }
+/// 实际导出命名空间 = 命名空间 ∈ available 命名空间的请求命名空间 ∪ {metado}
+/// （§4.3：未被支持的命名空间 → 导出不存在；粒度是命名空间而非权限字面量）
 pub fn exported_namespaces(requested: &[String], available: &[String]) -> Vec<String> {
-    let intersection: Vec<String> = requested
+    metado_engine::exported_namespaces(requested, available)
+}
+
+/// 请求了但能力注册表缺失（宿主需要另行实现）：命名空间不在 available 命名空间集内。
+pub fn ungranted_requests(requested: &[String], available: &[String]) -> Vec<String> {
+    let avail = available_namespaces(available);
+    requested
         .iter()
-        .filter(|p| available.contains(p))
+        .filter(|p| !avail.iter().any(|ns| ns == namespace_of(p)))
         .cloned()
-        .collect();
-    runtime_namespaces(&intersection)
+        .collect()
 }
 
 pub fn env_mdl(bytes: &[u8]) -> Result<EnvReport, String> {
@@ -63,11 +70,7 @@ pub fn env_mdl(bytes: &[u8]) -> Result<EnvReport, String> {
 
     let available = registry_permissions();
     let requested = manifest.permission.clone();
-    let ungranted_requests: Vec<String> = requested
-        .iter()
-        .filter(|p| !available.contains(p))
-        .cloned()
-        .collect();
+    let ungranted_requests = ungranted_requests(&requested, &available);
 
     let mut entries: Vec<(String, String)> = manifest
         .entries

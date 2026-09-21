@@ -12,5 +12,5 @@ pub use budget::ExecutionBudget;
 pub use engine::JsEngine;
 pub use executor::Executor;
 pub use module_loader::ModuleLoader;
-pub use plugin_runtime::{runtime_namespaces, FilesFn, PluginRuntime, TraceHook};
+pub use plugin_runtime::{FilesFn, PluginRuntime, TraceHook};
 pub use virtual_module::VirtualModule;

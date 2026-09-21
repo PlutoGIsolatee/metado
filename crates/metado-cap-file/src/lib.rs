@@ -12,8 +12,8 @@ impl CapabilitySet for MetaFile {
     fn meta(&self) -> CapabilityMeta {
         CapabilityMeta {
             name: "file".into(),
-            permissions: vec!["file.read".into(), "file.readText".into()],
-            exports: vec!["read".into(), "readText".into()],
+            permissions: vec!["file.read".into(), "file.stat".into()],
+            exports: vec!["read".into(), "stat".into()],
         }
     }
 }

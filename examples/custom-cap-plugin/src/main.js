@@ -5,7 +5,6 @@ import { custom, log } from "@metado/runtime";
 
 export default {
   test() {
-    const t = typeof custom;
-    return t === "function";
+    return typeof custom.dispatch === "function";
   },
 };

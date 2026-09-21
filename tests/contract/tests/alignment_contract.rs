@@ -12,12 +12,12 @@ fn contract_daemon_invoke_matches_cli_run() {
     );
 
     let cli_run = run_mdl(&bytes, &[]).unwrap();
-    assert_eq!(cli_run.result, metado_engine::Value::String("function".to_string()));
+    assert_eq!(cli_run.result, metado_engine::Value::String("object".to_string()));
 
     let mut daemon = Daemon::new();
     daemon.method("loadPlugin", &serde_json::json!({ "file": hex_str(&bytes) })).unwrap();
     let out = daemon.method("invoke", &serde_json::json!({ "entry": "align:boot", "args": [] })).unwrap();
-    assert_eq!(out, serde_json::json!("function"));
+    assert_eq!(out, serde_json::json!("object"));
 }
 
 #[test]

@@ -76,6 +76,7 @@ pub fn trace_mdl(
     let mut requested = manifest.permission.clone();
     requested.extend(extra_grant.iter().cloned());
     let exported = exported_namespaces(&requested, &available);
+    let granted = requested.clone();
 
     let files: HashMap<String, Vec<u8>> = container
         .files()
@@ -83,7 +84,7 @@ pub fn trace_mdl(
         .collect();
     let files = Box::new(move |rel: &str| files.get(rel).cloned());
 
-    let mut rt = PluginRuntime::new(&exported, files)?;
+    let mut rt = PluginRuntime::new(&exported, &granted, &available, files)?;
     let events: std::rc::Rc<std::cell::RefCell<Vec<TraceEvent>>> =
         std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let sink_events = events.clone();

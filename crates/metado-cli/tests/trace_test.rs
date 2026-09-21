@@ -58,8 +58,8 @@ fn test_trace_records_capability_call_for_exported_runtime() {
         .filter(|e| e.kind() == "CapabilityCall")
         .map(|e| e.capability())
         .collect();
-    assert!(caps.contains(&"storage"), "got {:?}", caps);
-    assert!(caps.contains(&"metado"), "got {:?}", caps);
+    assert!(caps.contains(&"storage.read"), "got {:?}", caps);
+    assert!(caps.contains(&"metado.custom"), "got {:?}", caps);
 }
 
 #[test]

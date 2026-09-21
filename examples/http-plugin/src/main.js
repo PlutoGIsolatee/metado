@@ -8,7 +8,6 @@ export default {
     return typeof http;
   },
   test() {
-    const t = typeof http;
-    return t === "function";
+    return typeof http.get === "function";
   },
 };

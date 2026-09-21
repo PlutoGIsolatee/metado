@@ -1,17 +1,18 @@
 import { ExecutionError } from './errors.mjs';
+import { requireGrant } from './grant.mjs';
 
 /**
- * 宿主自定义能力（自定义 CapabilitySet 的能力）：Node 宿主未知 → 访问得函数、调用即抛。
- * v1 无 proc-macro 定义自定义能力；此处仅保证 `import { custom }` 存在性。
+ * 宿主自定义能力（自定义 CapabilitySet 的能力）：permission 名 = `custom.<name>`。
+ * dispatch(name, params) 按 name 请求对应权限；Node 宿主无真实实现 → 授权后抛 stub。
  */
-const throwHost = (prop) => async () => {
-  throw new ExecutionError(`'custom.${String(prop)}' is not available in Node (host capability)`);
+export const custom = {
+  async dispatch(name, params) {
+    await requireGrant(`custom.${name}`);
+    throw new ExecutionError(`'custom.${name}' is not available in Node (v1 stub)`);
+  },
 };
 
-export const custom = new Proxy({}, {
-  get(_target, prop) {
-    const fn = throwHost(prop);
-    fn.call = fn;
-    return Object.freeze({ call: fn, __name: `custom.${String(prop)}` });
-  },
-});
+/** metado：宿主通用入口，`metado.custom(name, params)` 是 `custom.dispatch` 的别名。 */
+export const metado = {
+  custom: (name, params) => custom.dispatch(name, params),
+};

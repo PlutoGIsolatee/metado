@@ -32,16 +32,7 @@ fn custom_and_builtin_permissions() -> Vec<String> {
 }
 
 fn exported(requested: &[String], avail: &[String]) -> Vec<String> {
-    let mut out = vec!["metado".to_string()];
-    for req in requested {
-        if let Some((ns, _)) = req.split_once('.') {
-            if avail.contains(req) && !out.iter().any(|x| x == ns) {
-                out.push(ns.to_string());
-            }
-        }
-    }
-    out.sort();
-    out
+    metado_engine::exported_namespaces(requested, avail)
 }
 
 #[test]
@@ -80,11 +71,11 @@ fn contract_custom_capability_host_registration() {
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     let files = Box::new(move |rel: &str| files.get(rel).cloned());
-    let mut rt = PluginRuntime::new(&exported_list, files).unwrap();
+    let mut rt = PluginRuntime::new(&exported_list, &requested, &avail, files).unwrap();
     rt.load("src/main.js").unwrap();
     let out = rt.call_default("boot", vec![]).unwrap();
     let _ = &mut requested;
-    assert_eq!(out, Value::String("function".to_string()));
+    assert_eq!(out, Value::String("object".to_string()));
 }
 
 #[test]

@@ -132,3 +132,63 @@
 ### 下一步
 - 提交 Node shim。
 - Node 侧 dev shim 后续：插件桌面开发时导入对齐（Phase 7+ 前置）；日志系统接入 daemon 输出。
+---
+
+## 2026-09-21（会话五段） 评审修复：C5 导出形状 + C4 运行时放行（一个 TDD 单元）
+
+> 依据 `docs/superpowers/2026-09-20-project-review.md` Critical 5 + Critical 4 + 关联 Important
+> （async 入口、glob 权限），用户已确认 4 个微决策后开工。以锁定 spec 为唯一基准；spec 已回写。
+
+### 今日完成
+
+**引擎权限匹配器（metado-engine）**
+- `namespace_of`、`permission_allows`（段级匹配：request 为 pattern 段前缀授权；尾段 `*` 贪心覆盖
+  `example.com` 多段域名；`*`/`<...>` 段单段通配）、`grants_allow`、`available_namespaces`、
+  `exported_namespaces`（命名空间级导出决策 ∪ {metado}）。7 单测。
+- 修掉首个版本的命名空间 bug：`http.get.api.example.com` 拆段含 `.` → 尾段 `*` 改贪心后缀。
+- C5 回归闭环：请求 `http.get.api.example`（可用 `http.get.api.*`）→ `http` 命名空间不再消失。
+
+**executor 形状化导出 + 方法级放行（plugin_runtime.rs 重写）**
+- `PluginRuntime::new(exported, granted, surface, files)`：导出 = 命名空间**对象**（方法为函数，
+  `http.get(url)` 形状，规格唯一真）；放行 = 方法级 `ns.method` 对 granted 段级匹配。
+- 形状工厂经 `ctx.eval` 建立，权限/形状以 serde_json JSON 嵌入（注入安全），闭包只捕获非 GC 类型。
+- 拒绝语义：异步形状（http/storage/file/time.sleep/sha256/hmac/custom/metado）
+  → `Promise.reject(PermissionDenied)`；同步形状（log/time.now/crypto.randomBytes）→ 同步 throw。
+- `metado` 恒导出、`custom`/`metado` 恒放行（细分由真实实现按 dispatch name 裁决）。
+- trace 修复：CapabilityCall 逐方法发射，`granted` 如实传入（不再谎报导出名）；补发射 PermissionCheck。
+- async 契约（Important）：`call_default` pump job 队列 + `JsPromise::await_blocking` 读真实状态，
+  reject → Err。新增 async 入口测试（返回 42、reject 传播）。
+- executor 测试 12→17 全绿；移除 `runtime_namespaces`（由引擎 `exported_namespaces` 取代）。
+
+**cap-file**：`file.readText` → `file.stat`（权限名/导出名/fn 断言对齐规格）。
+
+**CLI/daemon 接线**：env `exported_namespaces` 命名空间级 + `ungranted_requests` 按命名空间判定；
+run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` 传入真实 granted；daemon
+`exported()` 统一走引擎决策。
+
+**Node dev shim 形状重写**：方法函数形状（`http.get()` 而非 `{__permission, call}`）；`custom={dispatch}`+
+`metado={custom: 别名}`；`PermissionDeniedError extends ExecutionError`；`grant` 段级匹配
+（`http.get.api.*` 覆盖 `http.get`）；`file.stat`；http 去 `api` 表面导出。`npm test` 全过（12 能力用例）。
+
+**示例/契约断言**：`typeof http === "object"`、`typeof http.get === "function"`；
+契约新增 `contract_glob_requested_namespace_still_exported`（C5 回归）。
+
+**spec 回写**：metado 节、custom 改写、导出原则（命名空间级静态面 / 方法级动态面）、权限匹配规则节、
+拒绝语义、file.stat 权限名、PermissionDeniedError 命名统一、示例加 metado。
+
+### 排错记录（本次）
+1. boa 0.22 `PropertyKey: From<&JsString>` 不实现 → 传 owned `JsString`。
+2. `JsValue::as_object()` 返回 owned `Option<JsObject>` → 去掉 `.cloned()`。
+3. `serde_json` 未入 executor 依赖 → workspace 依赖补 `serde_json`。
+4. env.rs `exported_namespaces` 与 engine 导入同名 → 本地 thin wrapper，删冲突导入。
+5. `granted` 移入 `engine.load_plugin` 后借用 → `granted.clone()`。
+6. 权限匹配器：`http.get.api.example.com` 拆段（`.` 分隔）→ 尾段 `*` 贪心后缀语义。
+7. Node 测试授权清单漏 `log.info` → 授权后同步断言误报。
+
+### 当前状态
+- **executor 17/17、engine 全绿、CLI/daemon contract 全绿、Node shim 全绿。**
+- 待办：workspace 全量回归（--jobs 1）→ 提交。
+
+### 下一步
+- 全量回归 `cargo test --workspace --jobs 1`；`git` 提交。
+- 后续评审项（C1 治理、C2 身份闸门、C3 燃料/中断、签名信封字段、容器上限、错误分类、IPC 错误路径）。

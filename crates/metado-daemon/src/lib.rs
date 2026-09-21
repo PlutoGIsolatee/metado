@@ -15,7 +15,7 @@ use metado_cap_log::MetaLog;
 use metado_cap_storage::MetaStorage;
 use metado_cap_time::MetaTime;
 use metado_engine::{
-    signer_id, CapabilityRegistry, Container, Engine, Manifest, SignedBundle,
+    exported_namespaces, signer_id, CapabilityRegistry, Container, Engine, Manifest, SignedBundle,
     Value as EngineValue,
 };
 use metado_executor::PluginRuntime;
@@ -79,19 +79,9 @@ impl Daemon {
         reg.all_permissions()
     }
 
-    /// §4.3 导出命名空间 = requested ∩ available（+ 恒含 metado）。
+    /// §4.3 导出命名空间 = 命名空间 ∈ available 命名空间的请求命名空间 ∪ {metado}。
     fn exported(&self, requested: &[String]) -> Vec<String> {
-        let avail = self.available_permissions();
-        let mut out: Vec<String> = vec!["metado".to_string()];
-        for req in requested {
-            if let Some((ns, _)) = req.split_once('.') {
-                if avail.iter().any(|a| a == req) && !out.iter().any(|e| e == ns) {
-                    out.push(ns.to_string());
-                }
-            }
-        }
-        out.sort();
-        out
+        exported_namespaces(requested, &self.available_permissions())
     }
 
     fn load_bundle(&mut self, bytes: &[u8], extra_permits: &[String]) -> Result<Value, String> {
@@ -141,7 +131,8 @@ impl Daemon {
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         let files = Box::new(move |rel: &str| files.get(rel).cloned());
-        let rt = PluginRuntime::new(&record.exported, files)?;
+        let surface = self.available_permissions();
+        let rt = PluginRuntime::new(&record.exported, &record.granted, &surface, files)?;
         let boot = record
             .manifest
             .entries

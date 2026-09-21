@@ -1,6 +1,7 @@
 //! `mdl run` 主机接线（Task 4.3 → Phase 6 强化）：验签 → 注册内置能力 → engine 生命周期
 //! （load → activate）→ `--grant` 并集 → PluginRuntime 真实 ESM 执行 boot 入口。
-//! 授权策略（v1）：granted = manifest.permission ∪ `--grant`；导出命名空间 = requested ∩ available（§4.3）。
+//! 授权策略（v1）：granted = manifest.permission ∪ `--grant`；导出命名空间 = requested 命名空间 ∩
+//! available 命名空间 ∪ {metado}（命名空间级静态面，§4.3）；调用放行 = 方法级动态面（granted 裁决）。
 
 use std::collections::HashMap;
 
@@ -53,7 +54,7 @@ pub fn run_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<RunOutcome, Strin
     let mut granted = manifest.permission.clone();
     granted.extend(extra_grant.iter().cloned());
 
-    engine.load_plugin(&bundle, granted)?;
+    engine.load_plugin(&bundle, granted.clone())?;
     let plugin_id = manifest.name.clone();
     engine.activate(&plugin_id)?;
 
@@ -85,7 +86,7 @@ pub fn run_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<RunOutcome, Strin
         .collect();
     let files = Box::new(move |rel: &str| files.get(rel).cloned());
 
-    let mut rt = PluginRuntime::new(&exported, files)?;
+    let mut rt = PluginRuntime::new(&exported, &granted, &available, files)?;
     rt.load("src/main.js")
         .map_err(|e| format!("load entry src/main.js: {}", e))?;
     let result = rt

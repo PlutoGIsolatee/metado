@@ -75,14 +75,13 @@ fn test_run_real_esm_imports_runtime() {
     .unwrap();
     let bytes = build_plugin(&root, &KeyPair::generate()).unwrap();
 
-    // 未请求 http → 不导出；请求的 storage/log → 导出（stub 类型 function）
+    // 未请求 http → 不导出；请求的 storage/log → 导出（命名空间对象带方法函数）
     let outcome = run_mdl(&bytes, &[]).unwrap();
-    assert_eq!(outcome.result, Value::String("function/function".to_string()));
+    assert_eq!(outcome.result, Value::String("object/object".to_string()));
 
-    // 显式 --grant 只能追加已请求；未请求的 http 不因 grant 单列出现
-    // （导出集合以 requested=次为准，extra_grant 并入 requested）
+    // 显式 --grant 追加到 requested；命名空间级导出以可用命名空间为准，方法放行由 granted 在调用期裁决。
     let outcome = run_mdl(&bytes, &["http.fetch".to_string()]).unwrap();
-    assert_eq!(outcome.result, Value::String("function/function".to_string()));
+    assert_eq!(outcome.result, Value::String("object/object".to_string()));
 }
 
 #[test]

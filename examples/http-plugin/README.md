@@ -10,7 +10,7 @@ mdl build examples/http-plugin --key /tmp/http.key --output /tmp/http.mdl
 # 无授权 → load 失败（import 未导出的 http 命名空间）
 mdl run /tmp/http.mdl            # error: module evaluation rejected …
 
-# 授权后 → typeof http === "function"
+# 授权后 → typeof http === "object"、typeof http.get === "function"
 mdl run /tmp/http.mdl --grant=http.get
 mdl test /tmp/http.mdl --grant=http.get
 ```

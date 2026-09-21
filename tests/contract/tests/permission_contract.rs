@@ -38,7 +38,21 @@ fn contract_extra_grant_still_respects_available_bound() {
         "import { storage } from '@metado/runtime';\nexport default { boot() { return typeof storage; } };\n",
     );
     let out = run_mdl(&bytes, &["bogus.perm".to_string()]).unwrap();
-    // storage 照常导出；bogus.perm 不影响
+    // storage 照常导出（命名空间对象带方法）；bogus.perm 不影响
+    assert_eq!(
+        out.result,
+        metado_engine::Value::String("object".to_string())
+    );
+}
+
+#[test]
+fn contract_glob_requested_namespace_still_exported() {
+    // C5 回归：请求 http.get.api.example（可用 http.get.api.*）→ http 命名空间照常导出
+    let bytes = bundle_bytes(
+        "name = \"g\"\nversion = \"1.0.0\"\npermission = [\"http.get.api.example\"]\n[entries.boot]\nexport = \"boot\"\n",
+        "import { http } from '@metado/runtime';\nexport default { boot() { return typeof http.get; } };\n",
+    );
+    let out = run_mdl(&bytes, &[]).unwrap();
     assert_eq!(
         out.result,
         metado_engine::Value::String("function".to_string())
@@ -60,13 +74,13 @@ fn contract_env_ungranted_requests_listed() {
 #[test]
 fn contract_boot_and_test_agree_on_granted_export() {
     // run 与 test 的导出计算同源（metadata + grant） → 对同一授权结果一致
-    let main = "import { storage } from '@metado/runtime';\nexport default { boot() { return typeof storage; }, test() { return typeof storage === 'function'; } };\n";
+    let main = "import { storage } from '@metado/runtime';\nexport default { boot() { return typeof storage; }, test() { return typeof storage.read === 'function'; } };\n";
     let bytes = bundle_bytes(
         "name = \"t\"\nversion = \"1.0.0\"\npermission = [\"storage.read\"]\n[entries.boot]\nexport = \"boot\"\n[entries.test]\nexport = \"test\"\n",
         main,
     );
     let run = run_mdl(&bytes, &[]).unwrap();
-    assert_eq!(run.result, metado_engine::Value::String("function".to_string()));
+    assert_eq!(run.result, metado_engine::Value::String("object".to_string()));
     let outcomes = test_mdl(&bytes, &[]).unwrap();
     assert!(outcomes.iter().any(|o| o.passed), "test must pass when export granted");
 }

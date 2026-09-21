@@ -37,8 +37,9 @@ pub fn test_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<Vec<TestOutcome>
     let available = registry_permissions();
     let mut requested = manifest.permission.clone();
     requested.extend(extra_grant.iter().cloned());
-    // §4.3：导出命名空间 = requested ∩ available（未请求 → 导出不存在）
+    // §4.3：导出命名空间 = 支持请求命名空间 ∪ {metado}（未支持 → 导出不存在）
     let exported = exported_namespaces(&requested, &available);
+    let granted = requested.clone();
 
     // 容器文件树 → 运行时 FilesFn
     let files: HashMap<String, Vec<u8>> = container
@@ -47,7 +48,7 @@ pub fn test_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<Vec<TestOutcome>
         .collect();
     let files = Box::new(move |rel: &str| files.get(rel).cloned());
 
-    let mut rt = PluginRuntime::new(&exported, files)?;
+    let mut rt = PluginRuntime::new(&exported, &granted, &available, files)?;
     let entry_module = "src/main.js";
     rt.load(entry_module)
         .map_err(|e| format!("load entry {}: {}", entry_module, e))?;
