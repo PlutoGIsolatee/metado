@@ -99,8 +99,8 @@ pub struct RealHost {
 
 ## 5. E2E 示例与验收
 
-新增 `examples/storage-log/`（按 §6 决策 **b** 落地：`crypto.randomBytes(n)` 由宿主返回
-十六进制字符串，同步形状，不破值模型）：
+新增 `examples/storage-log/`（内置 API 语义保持基本：返回值遵循值模型 v1 折叠，本单元
+**不锁定**任何具体返回值的字节/编码细节；验收只认架构行为）：
 
 - `mdl.toml`：`permission = ["storage.read","storage.write","log.info","time.now","crypto.randomBytes"]`，
   `entry.boot.export = "boot"`。
@@ -108,10 +108,11 @@ pub struct RealHost {
   ```js
   import { storage, log, time, crypto } from '@metado/runtime';
   export default { boot() {
-    const payload = `${time.now()}:${crypto.randomBytes(4)}`;
+    const payload = `${time.now()}`;
     storage.write('k', payload);
     const v = storage.read('k');
     log.info(v);
+    crypto.randomBytes(4);
     return v;
   } };
   ```
@@ -119,19 +120,19 @@ pub struct RealHost {
 验收测试 `crates/metado-cli/tests/run_real_test.rs`：
 
 - 用现有测试辅助构造签名容器（`run_test.rs` 同款），指定临时 storage_dir；
-- 断言 `RunOutcome.invoked == true` 且 `result` 为与写入等价的回环字符串
-  （`<unix_millis>:<hex8>`，`time.now` 用正则校毫秒长，randomBytes 十六进制 8 字符）。
+- 断言**架构行为**：(1) `RunOutcome.invoked == true`；(2) `result` 为存储回环字符串
+  （与 `time.now()` 写入等值）；(3) sync 形状 `crypto.randomBytes` 真实 dispatch 调用成功
+  （不抛错）；(4) 未授 `storage.write` 的插件同一 storage_dir 下调用被拒（PermissionDenied 流）。
 
-## 6. 待定项（spec 评审需锁定）
+## 6. 架构锁定项（评审前置）
 
-1. **crypto.randomBytes 返回值**（本栏锁定 **b**）：宿主编码为十六进制字符串返回
-   （同步形状、不破值模型、可断言）。备选：
-   a) 返回 `null`（只验证调用成功，长度不可得）；
-   c) 推进值模型 Bytes 消歧（超出本单元最小范围）。
-   待用户评审确认 b 或改选。
-2. `storage.write` 第二参数支持类型为 §4 串化规则所列四类（字面均折叠）。
+1. **内置 API 语义保持基本**：所有内置方法返回值遵循 v1 值模型折叠规则，本单元不改变任何
+   cap 实现、不锁定具体返回值编码（如 randomBytes 的十六进制化）——那些属于后续「cap 硬化」
+   或值模型消歧单元。本单元验收仅涉及 dispatch 架构行为（放行/拒绝/真实执行/错误流）。
+2. `storage.write` 第二参数按 v1 折叠：String/Number/Bool/Null 串化写入（见 §4 表）。
 3. `log` 输出为 `[level] msg` 前缀，`log.error` → stderr，其余 stdout。
 4. 缺少 manifest `boot` 入口时 `run_mdl` 现早返回（invoked=false），本单元不变。
+5. `run_mdl` 存储目录：`METADO_STORAGE_DIR` env，缺省 `./metado-storage`。
 
 ## 7. 测试策略
 
@@ -139,6 +140,6 @@ pub struct RealHost {
   断言：(1) 放行方法经桥调用同步形状直接返回值；(2) 错误同步 throw；(3) promise 形状
   返回 settle 后的 Promise（reject 流为 Err）；(4) host=None 时行为与现 stub 一致（回归）；
   (5) `__metadoDispatch` 不存在于 host=None 时。
-- cli：`RealHost` 单元测试（storage 回环、permission 二次裁决拒绝、randomBytes 串化、log 捕获）；
+- cli：`RealHost` 单元测试（storage 回环、permission 二次裁决拒绝、sync 形状直通、log 捕获）；
   `run_real_test.rs` 端到端。
 - 回归：`cargo test --workspace --jobs 1` 全绿（现有 214 passed 为基线）。
