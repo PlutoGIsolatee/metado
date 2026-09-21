@@ -88,7 +88,7 @@
 
 ## 5. 结论与剩余待办簇
 
-评审结论「治理语义是占位而非实现」的核心缺口已闭环：**Critical 全项有修复提交**，且每项都带 TDD 测试与全量回归（workspace 64 测试二进制，0 failed，0 warning）。剩余工作聚为四簇：
+评审结论「治理语义是占位而非实现」的核心缺口已闭环：**Critical 全项有修复提交**，且每项都带 TDD 测试与全量回归（workspace 全量：64 个测试套件结果 = 52 个测试二进制 + 12 doc-test，214 passed，0 failed，0 warning，exit 0）。剩余工作聚为四簇：
 
 1. **容量与错误分类**：cap 上限 + `ExecutionError` 四类映射 + FuelExhausted kind（评审建议 5）
 2. **IPC 服务健壮性**：错误响应 / batch / 并发（评审建议 6）
@@ -96,3 +96,15 @@
 4. **生命周期语义**：revoke 真撤销、invoke/active/lifecycle 接线、evict 重建、C3 中断钩子
 
 （`docs/superpowers/LOG.md` 会话六段另有关键决策与排错记录。）
+
+## 6. 台账核验后补（2026-09-21）
+
+由 `docs/superpowers/2026-09-21-disposition-audit.md` 对码核验，4 条声明属实并已修复：
+
+- **3.2** `<signer>` 模板方法面缺口：`build_ns_methods` 跳过占位段取真实方法名；新增 RED→GREEN
+  测试 `test_signer_template_surface_yields_bare_methods`。
+- **3.3** `PermissionResolver` 死代码删除（struct + re-export + 5 专属测试）。
+- **3.4** `TraceEvent::CapabilityCall.requested` → `exported`（三处），消除误导。
+- **3.1** 计数更正：64 个测试套件结果 = 52 测试二进制 + 12 doc-test。
+
+回归：64 套件全 ok，214 passed，0 failed，0 warning，exit 0。

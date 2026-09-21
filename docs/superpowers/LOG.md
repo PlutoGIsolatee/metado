@@ -240,7 +240,7 @@ run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` �
 3. 旧 engine_integration `grant("log.info")` 越界断言 → 改断言"越界被过滤"（新语义即修复）。
 
 ### 当前状态
-- **workspace 全量回归：64 测试二进制，0 failed，0 warning（--jobs 1，exit 0）。**
+- **workspace 全量回归：64 个测试套件结果（52 测试二进制 + 12 doc-test），0 failed，0 warning（--jobs 1，exit 0）。**
 - daemon 10/10、engine governance 8/8 + 旧全绿、executor 19/19（含 2 新燃料）、CLI/contract 全绿。
 - **已提交：`531112c`**（fix(runtime): C1 permission governance + C2 signer gate + C3 instruction fuel，
   17 文件，+526/−35）。
@@ -249,3 +249,25 @@ run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` �
 - 评审余项：签名信封其他字段、容器大小上限、IPC parse 错误响应、错误分类（FuelExhausted 入
   ErrorKind）、`cmd run` 的 engine granted 与 PluginRuntime 一致性的更宽契约测试、C3 中断钩子
   （never-settling await）。
+
+## 会话七：处置台账核验（disposition audit）落地（2026-09-21）
+
+对 `docs/superpowers/2026-09-21-disposition-audit.md`（对处置台账的对码核验）逐条处置，
+核实 4 条声明后全部属实并修复：
+
+1. **3.2 `<signer>` 模板方法面缺口**（真）：`build_ns_methods` 取 `split('.')[1]`，
+   `storage.<signer>.read` 的方法名退化为字面 `<signer>`（此前被 cap-storage 同时注册裸
+   `storage.read/write` 掩盖）。**RED** 新增 `test_signer_template_surface_yields_bare_methods`
+   （surface/granted 仅含 `<signer>` 形式 → 期望 `read,write/function/function`，实测
+   `<signer>/undefined/undefined`）→ **GREEN** 改为跳过 `<...>`/`*` 占位段取首个真实段。
+2. **3.3 `PermissionResolver` 死代码**（真）：全 crate 无生产调用，语义已被
+   `permission_allows`/`grants_allow` + engine 权威 grant 取代。删除 struct、`lib.rs` re-export
+   及 5 个专属测试（保留 `PermissionSet` 测试）。
+3. **3.4 trace `requested` 字段近似**（真）：`CapabilityCall.requested` 实填导出命名空间名。
+   改名为 `exported` 并加文档注释（engine/executor/cli 三处），消除误导。
+4. **3.1 计数措辞**（口径问题）：原「64 测试二进制」不精确；更正为「64 个测试套件结果
+   = 52 测试二进制 + 12 doc-test」。
+
+- **全量回归（本轮后）**：`cargo test --workspace --jobs 1` → 64 套件全 ok，**214 passed，
+  0 failed，0 warning，exit 0**（较上轮 218 passed：+1 新增、−5 删除的 resolver 测试）。
+- 未改审计文档本体；审计结论「台账基本准确、诚实」维持。

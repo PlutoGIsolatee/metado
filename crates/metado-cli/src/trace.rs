@@ -36,8 +36,8 @@ impl TraceLine {
         match &self.0 {
             TraceEvent::EntryStart { entry } => format!("entry {}", entry),
             TraceEvent::EntryEnd { entry } => format!("entry {} done", entry),
-            TraceEvent::CapabilityCall { module, line, requested, .. } => {
-                format!("{}@{} requested {}", module, line, requested.join(", "))
+            TraceEvent::CapabilityCall { module, line, exported, .. } => {
+                format!("{}@{} exported {}", module, line, exported.join(", "))
             }
             TraceEvent::PermissionCheck { capability, passed } => {
                 format!("{} {}", capability, if *passed { "granted" } else { "denied" })

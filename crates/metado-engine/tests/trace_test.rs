@@ -9,7 +9,7 @@ fn test_record_and_retrieve() {
         module: "http".into(),
         line: 10,
         capability: "http.get".into(),
-        requested: vec!["http.get".into()],
+        exported: vec!["http".into()],
         granted: vec!["http.get".into()],
     });
 

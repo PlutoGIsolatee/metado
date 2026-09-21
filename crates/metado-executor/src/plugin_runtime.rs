@@ -48,7 +48,9 @@ fn build_ns_methods(surface: &[String]) -> HashMap<String, Vec<String>> {
     for perm in surface {
         let mut it = perm.split('.');
         let ns = it.next().unwrap_or("");
-        let method = it.next().unwrap_or("");
+        let method = it
+            .find(|seg| !seg.is_empty() && !seg.starts_with('<') && *seg != "*")
+            .unwrap_or("");
         if !ns.is_empty() && !method.is_empty() {
             map.entry(ns.to_string()).or_default().push(method.to_string());
         }
@@ -133,7 +135,7 @@ impl PluginModuleLoader {
                                     module: RUNTIME_SPEC.into(),
                                     line: 0,
                                     capability: capability.clone(),
-                                    requested: export_names.clone(),
+                                    exported: export_names.clone(),
                                     granted: granted.clone(),
                                 });
                                 t(TraceEvent::PermissionCheck {

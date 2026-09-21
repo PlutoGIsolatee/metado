@@ -17,7 +17,7 @@ pub use error::{ErrorKind, ExecutionError};
 pub use manifest::Manifest;
 pub use permission::{
     available_namespaces, exported_namespaces, grants_allow, namespace_of, permission_allows,
-    PermissionResolver, PermissionSet,
+    PermissionSet,
 };
 pub use plugin::{Plugin, PluginState};
 pub use signature::{signer_id, KeyPair, SignedBundle};

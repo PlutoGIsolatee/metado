@@ -12,7 +12,8 @@ pub enum TraceEvent {
         module: String,
         line: u32,
         capability: String,
-        requested: Vec<String>,
+        /// 该事件签发时的导出命名空间面（非真实 permission-requested 上界）。
+        exported: Vec<String>,
         granted: Vec<String>,
     },
     PermissionCheck {

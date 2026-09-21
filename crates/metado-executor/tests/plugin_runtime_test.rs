@@ -92,6 +92,30 @@ fn test_runtime_export_is_namespace_object_with_methods() {
 }
 
 #[test]
+fn test_signer_template_surface_yields_bare_methods() {
+    // 审计 3.2：surface/granted 仅含 <signer> 模板形式（无裸 read/write）时，
+    // storage 的方法面仍应为 read/write，而非字面 "<signer>" 假方法。
+    let files = stub(HashMap::from([
+        (
+            "src/main.js",
+            "import { storage } from '@metado/runtime';\n\
+             export default { boot() { return Object.keys(storage).join(',') + '/' + typeof storage.read + '/' + typeof storage.write; } };\n",
+        ),
+    ]));
+    let exported = vec!["storage".into()];
+    let granted = vec!["storage.<signer>.read".into(), "storage.<signer>.write".into()];
+    let surface = vec![
+        "storage.<signer>.read".to_string(),
+        "storage.<signer>.write".to_string(),
+        "log.info".to_string(),
+    ];
+    let mut rt = new_runtime(&exported, &granted, surface, files);
+    rt.load("src/main.js").unwrap();
+    let out = rt.call_default("boot", vec![]).unwrap();
+    assert_eq!(out, Value::String("read,write/function/function".into()));
+}
+
+#[test]
 fn test_runtime_neutral_namespaces_are_objects() {
     // 请求了但未授予的能力面：命名空间对象仍在，方法仍存在（放行是调用期动态面）
     let files = stub(HashMap::from([
