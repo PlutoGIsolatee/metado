@@ -242,8 +242,10 @@ run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` �
 ### 当前状态
 - **workspace 全量回归：64 测试二进制，0 failed，0 warning（--jobs 1，exit 0）。**
 - daemon 10/10、engine governance 8/8 + 旧全绿、executor 19/19（含 2 新燃料）、CLI/contract 全绿。
+- **已提交：`531112c`**（fix(runtime): C1 permission governance + C2 signer gate + C3 instruction fuel，
+  17 文件，+526/−35）。
 
 ### 下一步
-- 提交本轮（C1/C2/C3-fuel）。
 - 评审余项：签名信封其他字段、容器大小上限、IPC parse 错误响应、错误分类（FuelExhausted 入
-  ErrorKind）、`cmd run` 的 engine granted 与 PluginRuntime 一致性的更宽契约测试。
+  ErrorKind）、`cmd run` 的 engine granted 与 PluginRuntime 一致性的更宽契约测试、C3 中断钩子
+  （never-settling await）。
