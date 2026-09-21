@@ -10,7 +10,8 @@ use metado_cap_log::MetaLog;
 use metado_cap_storage::MetaStorage;
 use metado_cap_time::MetaTime;
 use metado_engine::{
-    available_namespaces, namespace_of, CapabilityRegistry, Container, Manifest, SignedBundle,
+    available_namespaces, namespace_of, CapabilityRegistry, Container, Manifest, PermissionSet,
+    SignedBundle,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,18 @@ pub fn ungranted_requests(requested: &[String], available: &[String]) -> Vec<Str
         .filter(|p| !avail.iter().any(|ns| ns == namespace_of(p)))
         .cloned()
         .collect()
+}
+
+/// 请求权限全集 = manifest.permission ∪ 展开的 permission-set ∪ 显式 extra。
+/// 未定义的 permission-set 名 → Err（C1 治理：宿主必须先行注册集才可引用）。
+/// env 报告仍按 manifest 原样展示声明（诊断视角）；run/test/trace 用本函数取真实 requested。
+pub fn resolve_requested(manifest: &Manifest, extra: &[String]) -> Result<Vec<String>, String> {
+    let ps = PermissionSet::new();
+    let expanded = ps.expand(&manifest.permission_set)?;
+    let mut req = manifest.permission.clone();
+    req.extend(expanded);
+    req.extend(extra.iter().cloned());
+    Ok(req)
 }
 
 pub fn env_mdl(bytes: &[u8]) -> Result<EnvReport, String> {

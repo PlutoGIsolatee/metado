@@ -10,7 +10,11 @@ pub struct JsEngine {
 
 impl JsEngine {
     pub fn new() -> Self {
-        let context = Context::default();
+        // C3 燃料（boa fuzz feature）：默认预算，避免 0 残留使一切立即失败；紧循环仍会被终结。
+        let context = Context::builder()
+            .instructions_remaining(crate::plugin_runtime::DEFAULT_INSTRUCTION_BUDGET)
+            .build()
+            .expect("build boa context");
         Self { context }
     }
 

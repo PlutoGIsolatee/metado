@@ -101,6 +101,24 @@ fn test_run_extra_grant_accepted() {
 }
 
 #[test]
+fn test_run_undefined_permission_set_rejected() {
+    // C1：CLI 宿主无注册 permission-set → 引用未定义集 → 加载失败
+    let dir = TempDir::new("metado-cli-run").unwrap();
+    let root = dir.path().join("plugin");
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("mdl.toml"),
+        "name = \"nps\"\nversion = \"1.0.0\"\npermission-set = [\"ghost\"]\n\
+         [entries.boot]\nexport = \"boot\"\n",
+    )
+    .unwrap();
+    std::fs::write(root.join("src/main.js"), "export default { boot() { return 1; } };\n").unwrap();
+    let bytes = build_plugin(&root, &KeyPair::generate()).unwrap();
+    let err = run_mdl(&bytes, &[]).unwrap_err();
+    assert!(err.contains("ghost"), "expected undefined set error, got {}", err);
+}
+
+#[test]
 fn test_run_plugin_without_boot_is_noop() {
     let dir = TempDir::new("metado-cli-run").unwrap();
     let root = dir.path().join("plugin");

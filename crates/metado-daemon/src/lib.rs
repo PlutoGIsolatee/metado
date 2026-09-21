@@ -98,8 +98,9 @@ impl Daemon {
         requested.extend(extra_permits.iter().cloned());
         let exported = self.exported(&requested);
 
+        // engine 权威：permission-set 展开 + C1 治理（granted ⊆ requested）。加载即按请求授予。
         self.engine.load_plugin(&bundle, requested.clone())?;
-        self.engine.grant(&manifest.name, requested.clone())?;
+        let granted = self.engine.granted(&manifest.name)?;
 
         let sid = signer_id(&bundle.signer_pubkey());
         self.records.insert(
@@ -110,7 +111,7 @@ impl Daemon {
                 manifest: manifest.clone(),
                 container,
                 exported,
-                granted: requested,
+                granted,
                 active: false,
             },
         );
@@ -199,17 +200,19 @@ impl Daemon {
             }
             metado_ipc::protocol::GRANT => {
                 let plugin_id = str_arg("plugin_id")?;
-                let record = self
-                    .records
-                    .get_mut(&plugin_id)
-                    .ok_or_else(|| format!("plugin not found: {}", plugin_id))?;
-                if let Some(perms) = params.get("permission").and_then(Value::as_array) {
-                    record
-                        .granted
-                        .extend(perms.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<String>>());
+                let perms = params
+                    .get("permission")
+                    .and_then(Value::as_array)
+                    .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect::<Vec<String>>())
+                    .unwrap_or_default();
+                // engine 权威裁决：越界（超出 requested）授予被过滤
+                let granted = self.engine.grant(&plugin_id, perms.clone())?;
+                if !self.records.contains_key(&plugin_id) {
+                    return Err(format!("plugin not found: {}", plugin_id));
                 }
-                let granted = record.granted.clone();
-                self.engine.grant(&plugin_id, granted.clone())?;
+                if let Some(record) = self.records.get_mut(&plugin_id) {
+                    record.granted = granted.clone();
+                }
                 Ok(json!({ "granted": granted }))
             }
             metado_ipc::protocol::REVOKE => {

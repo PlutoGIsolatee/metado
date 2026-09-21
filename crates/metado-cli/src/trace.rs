@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use metado_engine::{Container, Manifest, SignedBundle, TraceEvent};
 use metado_executor::PluginRuntime;
 
-use crate::env::{exported_namespaces, registry_permissions};
+use crate::env::{exported_namespaces, registry_permissions, resolve_requested};
 
 /// 附查看器的轨迹事件。
 #[derive(Debug, Clone)]
@@ -73,8 +73,7 @@ pub fn trace_mdl(
     let manifest = Manifest::from_toml(&manifest_raw).map_err(|e| format!("manifest: {}", e))?;
 
     let available = registry_permissions();
-    let mut requested = manifest.permission.clone();
-    requested.extend(extra_grant.iter().cloned());
+    let requested = resolve_requested(&manifest, extra_grant)?;
     let exported = exported_namespaces(&requested, &available);
     let granted = requested.clone();
 

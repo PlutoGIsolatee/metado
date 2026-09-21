@@ -52,8 +52,11 @@ fn test_plugin_load_grant_activate_invoke() {
         assert!(engine.invoke("myplugin", "boot", Value::Null).is_err());
     }
 
+    // C1 治理：越界 grant（manifest 未请求 log.info）被过滤；requested 内有效
     engine.grant("myplugin", vec!["log.info".into()]).unwrap();
-    assert!(engine.plugin("myplugin").unwrap().granted.iter().any(|p| p == "log.info"));
+    assert!(!engine.plugin("myplugin").unwrap().granted.iter().any(|p| p == "log.info"));
+    let granted = engine.grant("myplugin", vec!["http.get".into()]).unwrap();
+    assert!(granted.iter().any(|p| p == "http.get"));
 
     engine.activate("myplugin").unwrap();
 

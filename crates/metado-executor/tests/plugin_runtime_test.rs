@@ -333,6 +333,41 @@ fn test_trace_emits_capability_and_permission() {
 }
 
 #[test]
+fn test_infinite_loop_hits_instruction_budget() {
+    // C3：指令燃料 —— 紧循环（无 stub 交互，ExecutionBudget 看不见）仍被终结为 Err
+    let files = stub(HashMap::from([
+        (
+            "src/main.js",
+            "export default { boot() { for (;;) {} return 1; } };\n",
+        ),
+    ]));
+    let mut rt =
+        PluginRuntime::new_with_instruction_budget(&[], &[], &host_surface(), files, 1_000_000)
+            .unwrap();
+    rt.load("src/main.js").unwrap();
+    match rt.call_default("boot", vec![]) {
+        Err(msg) => assert!(
+            msg.contains("budget") || msg.contains("budget"),
+            "expected instruction budget error, got: {}",
+            msg
+        ),
+        Ok(v) => panic!("infinite loop must not return, got {:?}", v),
+    }
+}
+
+#[test]
+fn test_normal_plugin_within_budget() {
+    let files = stub(HashMap::from([
+        ("src/main.js", "export default { boot() { return 7; } };\n"),
+    ]));
+    let mut rt =
+        PluginRuntime::new_with_instruction_budget(&[], &[], &host_surface(), files, 1_000_000)
+            .unwrap();
+    rt.load("src/main.js").unwrap();
+    assert_eq!(rt.call_default("boot", vec![]).unwrap().as_f64(), Some(7.0));
+}
+
+#[test]
 fn test_runtime_export_namespace_level_decision() {
     let available = vec![
         "http.get".to_string(),

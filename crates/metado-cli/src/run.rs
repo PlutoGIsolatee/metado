@@ -50,11 +50,10 @@ pub fn run_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<RunOutcome, Strin
     let mut engine = Engine::new();
     register_builtins(&mut engine);
 
-    // granted = 插件声明 ∪ CLI 模拟授权（permission-set 名展开由权限解析器承接，v1 保守保留 token）
-    let mut granted = manifest.permission.clone();
-    granted.extend(extra_grant.iter().cloned());
-
-    engine.load_plugin(&bundle, granted.clone())?;
+    // requested（含 permission-set 展开，engine 权威）→ 加载即授予（C1：granted ⊆ requested）
+    let mut requested = manifest.permission.clone();
+    requested.extend(extra_grant.iter().cloned());
+    engine.load_plugin(&bundle, requested)?;
     let plugin_id = manifest.name.clone();
     engine.activate(&plugin_id)?;
 
@@ -76,9 +75,9 @@ pub fn run_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<RunOutcome, Strin
 
     // 执行面：真实 ESM 容器（与 mdl test/trace/daemon 一致）
     let available = registry_permissions();
-    let mut requested = manifest.permission.clone();
-    requested.extend(extra_grant.iter().cloned());
+    let requested = engine.requested(&plugin_id)?;
     let exported = exported_namespaces(&requested, &available);
+    let granted = engine.granted(&plugin_id)?;
 
     let files: HashMap<String, Vec<u8>> = container
         .files()

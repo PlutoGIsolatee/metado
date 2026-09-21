@@ -26,6 +26,10 @@ fn make_bundle(plugin_id: &str, main_js: &str) -> SignedBundle {
         "name = \"{id}\"\nversion = \"1.0.0\"\npermission = [\"log.info\"]\n[entries.boot]\nexport = \"boot\"\n",
         id = plugin_id
     );
+    make_bundle_toml(plugin_id, &manifest, main_js)
+}
+
+fn make_bundle_toml(_plugin_id: &str, manifest: &str, main_js: &str) -> SignedBundle {
     let cursor = std::io::Cursor::new(Vec::new());
     let mut zw = zip::ZipWriter::new(cursor);
     let opts = zip::write::SimpleFileOptions::default();
@@ -122,6 +126,86 @@ fn test_daemon_grant_set_active_trace() {
 
     let tr = daemon.method("trace", &serde_json::json!({ "plugin_id": "spy" })).unwrap();
     assert!(!tr.as_array().unwrap().is_empty(), "trace must record events");
+}
+
+#[test]
+fn test_daemon_grant_filtered_beyond_requested() {
+    // 声明 log.info；load 附加 storage.read。storage.write 越界 → GRANT 被过滤
+    let bundle = make_bundle("grp", "export default { boot() { return 1; } };\n");
+    let mut daemon = Daemon::new();
+    daemon
+        .method("loadPlugin", &serde_json::json!({ "file": hex_str(&bundle.to_bytes()), "permits": ["storage.read"] }))
+        .unwrap();
+    let v = daemon
+        .method("grant", &serde_json::json!({ "plugin_id": "grp", "permission": ["storage.write", "log.info", "storage.read"] }))
+        .unwrap();
+    let granted: Vec<String> = v["granted"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x.as_str().map(str::to_string))
+        .collect();
+    assert!(granted.contains(&"log.info".to_string()));
+    assert!(granted.contains(&"storage.read".to_string()));
+    assert!(!granted.contains(&"storage.write".to_string()), "out-of-scope grant must be filtered, got {:?}", granted);
+
+    // engine 权威 granted 一致
+    let list = daemon.method("listPlugins", &serde_json::json!({})).unwrap();
+    let me = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["id"] == "grp")
+        .unwrap();
+    let listed: Vec<String> = me["granted"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|x| x.as_str().map(str::to_string))
+        .collect();
+    assert_eq!(listed, granted);
+}
+
+#[test]
+fn test_daemon_load_expands_registered_permission_set() {
+    daemon_register_set_and_grants_expand(true)
+}
+
+#[test]
+fn test_daemon_load_rejects_undefined_permission_set() {
+    daemon_register_set_and_grants_expand(false)
+}
+
+fn daemon_register_set_and_grants_expand(register: bool) {
+    let manifest = "name = \"pset\"\nversion = \"1.0.0\"\npermission-set = [\"chatty\"]\n[entries.boot]\nexport = \"boot\"\n";
+    let bundle = make_bundle_toml("pset", manifest, "export default { boot() { return 1; } };\n");
+    let mut daemon = Daemon::new();
+    if register {
+        daemon
+            .method("registerPermissionSet", &serde_json::json!({ "name": "chatty", "permissions": ["log.info", "http.fetch"] }))
+            .unwrap();
+    }
+    let res = daemon.method("loadPlugin", &serde_json::json!({ "file": hex_str(&bundle.to_bytes()) }));
+    if register {
+        let list = daemon.method("listPlugins", &serde_json::json!({})).unwrap();
+        let me = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == "pset")
+            .unwrap();
+        let granted: Vec<String> = me["granted"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|x| x.as_str().map(str::to_string))
+            .collect();
+        assert_eq!(granted, vec!["log.info", "http.fetch"]);
+        let _ = res.unwrap();
+    } else {
+        let err = res.unwrap_err();
+        assert!(err.contains("chatty"), "undefined permission set must fail load, got {}", err);
+    }
 }
 
 #[test]

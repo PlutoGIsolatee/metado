@@ -192,3 +192,58 @@ run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` �
 ### 下一步
 - 全量回归 `cargo test --workspace --jobs 1`；`git` 提交。
 - 后续评审项（C1 治理、C2 身份闸门、C3 燃料/中断、签名信封字段、容器上限、错误分类、IPC 错误路径）。
+
+---
+
+## 2026-09-21（会话六段） 评审修复：C1 权限治理 + C2 身份闸门 + C3 指令燃料（自决范围）
+
+> 承上段 C5/C4。用户授权自决 → 取评审优先建议 #1（权限/身份治理接线），燃料（C3）作为延伸一并落地。
+> 治理决策：**requested（导出面之源）= manifest.permission ∪ permission-set 展开 ∪ 显式 extra；
+> engine 为唯一权威（granted ⊆ requested 强制）**；CLI `--grant`/daemon GRANT 是控制面操作，仍受
+> requested 上界约束（越界项不生效，而非 400）。
+
+### 今日完成
+
+**C1：granted ⊆ requested 强制（metado-engine 权威）**
+- `Plugin` 增 `requested: Vec<String>`（请求全集上限）；`load_plugin` 记录 requested 并按之授予。
+- `Engine::grant` 改写：只保留 requested 模板覆盖内的权限（`permission_allows` 段级语义，含模板
+  细粒度如 `http.get.api.*` → `http.get` / `http.get.api.example.com`），去重；返回最新 granted。
+- permission-set 存在性 + 展开移入 engine：`load_plugin` 展开 `manifest.permission-set`（未定义
+  集名 → 加载失败），`requested = 传入 ∪ 展开`。daemon 必须先 `registerPermissionSet` 才能装载
+  引集的插件（试验证）。
+- 新增访问器 `Engine::requested(plugin_id)` / `Engine::granted(plugin_id)`。
+- 治理单测 8（越界过滤/模板内保留/去重/requested 记录/set 展开/未定义集拒绝/替换/冒名）。
+
+**C2：load_plugin 身份闸门**
+- 同名加载：signer 相同 → 替换（更新版本，无重复记录）；signer 不同 → 拒绝（防冒名，原插件保留）。
+
+**Host 接线**
+- daemon：`load_bundle` 去掉冗余 engine.grant（加载即授）；record.granted = engine 权威 granted；
+  GRANT 方法过 engine 过滤后落记录（不再盲 extend）；2 新测试（越界过滤、set 展开/未定义拒绝）。
+- CLI：`run.rs` 从 engine 取 granted/requested（含展开）构造执行面；`test.rs`/`trace.rs` 走新辅助
+  `env::resolve_requested`（声明 ∪ set 展开 ∪ extra）；未定义 set → 失败。run 增 1 回归测试。
+
+**C3：指令燃料（boa 0.22 fuzz feature）**
+- `boa_engine` 启用 `fuzz` feature（新增依赖：`arbitrary` 1.4.2 + `derive_arbitrary` 1.4.1，
+  已由用户批准；Cargo.lock 相应更新）。
+- `PluginRuntime::new` 以 `DEFAULT_INSTRUCTION_BUDGET=50_000_000` 设 `instructions_remaining`；
+  `new_with_instruction_budget` 供测试/细控。紧循环（`for(;;){}`，ExecutionBudget 看不见）
+  现被终结为 "instruction budget exhausted" 错误。
+- `JsEngine`（旧 executor 桥）同步设预算，避免 fuzz 默认 0 残留导致一切立即失败。
+- 已知边界（诚实记录）：`await never-settling promise` 的 await_blocking 仍可挂起
+  （job 泵无进展且不消费指令，C3 后续再议中断钩子）。
+
+### 排错记录（本次）
+1. fuzz feature 使 `ContextBuilder` 默认 `instructions_remaining=0` → JsEngine 一切立即抛错
+   → 统一设预算。
+2. 治理测试漏 seed 模板项（load 即授予 requested 本身）→ 断言并入模板。
+3. 旧 engine_integration `grant("log.info")` 越界断言 → 改断言"越界被过滤"（新语义即修复）。
+
+### 当前状态
+- **workspace 全量回归：64 测试二进制，0 failed，0 warning（--jobs 1，exit 0）。**
+- daemon 10/10、engine governance 8/8 + 旧全绿、executor 19/19（含 2 新燃料）、CLI/contract 全绿。
+
+### 下一步
+- 提交本轮（C1/C2/C3-fuel）。
+- 评审余项：签名信封其他字段、容器大小上限、IPC parse 错误响应、错误分类（FuelExhausted 入
+  ErrorKind）、`cmd run` 的 engine granted 与 PluginRuntime 一致性的更宽契约测试。

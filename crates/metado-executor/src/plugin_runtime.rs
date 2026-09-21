@@ -239,10 +239,24 @@ pub struct PluginRuntime {
     entry: Option<Module>,
 }
 
+/// 默认指令预算（C3 燃料）：紧循环/无限递归也会耗尽并报错，而非挂死 daemon。
+pub const DEFAULT_INSTRUCTION_BUDGET: usize = 50_000_000;
+
 impl PluginRuntime {
     /// `exported`：`@metado/runtime` 导出的命名空间（命名空间级静态面，恒含 metado）。
     /// `granted`：调用期放行的权限模式集（方法级裁决）。`surface`：available 权限全集（方法面来源）。
     pub fn new(exported: &[String], granted: &[String], surface: &[String], files: FilesFn) -> Result<Self, String> {
+        Self::new_with_instruction_budget(exported, granted, surface, files, DEFAULT_INSTRUCTION_BUDGET)
+    }
+
+    /// 同 `new`，但指定逐指令预算（`budget` 耗尽 → 把指令节流为失败）。测试用较小值快速触发。
+    pub fn new_with_instruction_budget(
+        exported: &[String],
+        granted: &[String],
+        surface: &[String],
+        files: FilesFn,
+        budget: usize,
+    ) -> Result<Self, String> {
         let mut exported = exported.to_vec();
         if !exported.iter().any(|e| e == "metado") {
             exported.push("metado".into());
@@ -260,6 +274,7 @@ impl PluginRuntime {
         });
         let context = Context::builder()
             .module_loader(loader.clone())
+            .instructions_remaining(budget)
             .build()
             .map_err(|e| format!("runtime context: {}", e))?;
         Ok(Self {
@@ -277,6 +292,14 @@ impl PluginRuntime {
 
     /// 载入容器根模块（`src/main.js`），link + evaluate（含 `@metado/runtime` 解析）。
     pub fn load(&mut self, container_path: &str) -> Result<(), String> {
+        let err = self.load_inner(container_path);
+        match err {
+            Err(msg) => self.map_fuel_error(msg).map(|_| ()),
+            ok => ok,
+        }
+    }
+
+    fn load_inner(&mut self, container_path: &str) -> Result<(), String> {
         let rel = container_path.trim_start_matches('/');
         let code = (self.loader.files)(rel)
             .ok_or_else(|| format!("entry module not found in container: {}", container_path))?;
@@ -299,9 +322,27 @@ impl PluginRuntime {
         Ok(())
     }
 
+    /// 指令预算耗尽（C3 燃料）→ 将原始错误转译为明确的预算耗尽错误。
+    fn map_fuel_error(&self, msg: String) -> Result<(), String> {
+        if self.context.instructions_remaining() == 0 {
+            Err("instruction budget exhausted (C3 fuel)".into())
+        } else {
+            Err(msg)
+        }
+    }
+
     /// 调用根模块 default 导出的方法。
     /// 异步契约（§4.2/§9.1）：pump job 队列；入口返回 Promise → await 到 settled（reject → Err）。
     pub fn call_default(&mut self, method: &str, args: Vec<Value>) -> Result<Value, String> {
+        match self.call_default_inner(method, args) {
+            Err(_msg) if self.context.instructions_remaining() == 0 => {
+                Err("instruction budget exhausted (C3 fuel)".into())
+            }
+            other => other,
+        }
+    }
+
+    fn call_default_inner(&mut self, method: &str, args: Vec<Value>) -> Result<Value, String> {
         let module = self
             .entry
             .as_ref()

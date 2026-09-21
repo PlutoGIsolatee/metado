@@ -18,6 +18,9 @@ pub struct Plugin {
     pub signer_id: String,
     pub manifest: Option<Manifest>,
     pub state: PluginState,
+    /// 加载时登记的请求权限全集（manifest.permission ∪ 展开的 permission-set），
+    /// granted 的上界（C1 治理：granted ⊆ requested 由 engine 强制）。
+    pub requested: Vec<String>,
     pub granted: Vec<String>,
 }
 
@@ -28,6 +31,7 @@ impl Plugin {
             signer_id: signer_id.to_string(),
             manifest: None,
             state: PluginState::Absent,
+            requested: Vec::new(),
             granted: Vec::new(),
         }
     }

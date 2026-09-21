@@ -53,7 +53,7 @@ impl Engine {
     pub fn load_plugin(
         &mut self,
         bundle: &SignedBundle,
-        granted: Vec<String>,
+        requested: Vec<String>,
     ) -> Result<(), String> {
         bundle.verify()?;
 
@@ -64,11 +64,32 @@ impl Engine {
         let manifest =
             Manifest::from_toml(toml_content).map_err(|e| format!("invalid manifest: {}", e))?;
 
+        // permission-set 引用存在性检查 + 展开（C1；未定义 → 加载失败）。
+        let set_expanded = self.permission_sets.expand(&manifest.permission_set)?;
+        let mut requested_final = requested;
+        for p in set_expanded {
+            if !requested_final.iter().any(|r| r == &p) {
+                requested_final.push(p);
+            }
+        }
+
         let sid = signer_id(&bundle.signer_pubkey());
+
+        // C2 身份闸门：同名加载——同 signer 视为更新（替换旧记录），不同 signer 拒绝（防冒名）。
+        if let Some(existing) = self.plugins.iter().find(|p| p.id == manifest.name) {
+            if existing.signer_id != sid {
+                return Err(format!(
+                    "plugin '{}' already loaded by a different signer ({}); refusing impostor",
+                    manifest.name, existing.signer_id
+                ));
+            }
+            self.plugins.retain(|p| p.id != manifest.name);
+        }
 
         let mut plugin = Plugin::new(&manifest.name, &sid);
         plugin.manifest = Some(manifest);
-        plugin.granted = granted;
+        plugin.requested = requested_final.clone();
+        plugin.granted = requested_final;
         plugin.transition(PluginState::Installing)?;
         plugin.transition(PluginState::Installed)?;
         plugin.transition(PluginState::Loading)?;
@@ -87,14 +108,35 @@ impl Engine {
             .ok_or_else(|| format!("plugin not found: {}", plugin_id))
     }
 
-    pub fn grant(&mut self, plugin_id: &str, perms: Vec<String>) -> Result<(), String> {
+    /// 越界授予治理（C1）：仅保留 requested 模板覆盖内的权限，去重；返回最新 granted。
+    pub fn grant(&mut self, plugin_id: &str, perms: Vec<String>) -> Result<Vec<String>, String> {
         let plugin = self
             .plugins
             .iter_mut()
             .find(|p| p.id == plugin_id)
             .ok_or_else(|| format!("plugin not found: {}", plugin_id))?;
-        plugin.granted.extend(perms);
-        Ok(())
+        let requested = plugin.requested.clone();
+        for p in perms {
+            let within_requested = requested.iter().any(|r| permission_allows(r, &p));
+            if within_requested && !plugin.granted.iter().any(|g| g == &p) {
+                plugin.granted.push(p);
+            }
+        }
+        Ok(plugin.granted.clone())
+    }
+
+    /// 登记的请求权限全集（含展开的 permission-set；C1 requested 上界）。
+    pub fn requested(&self, plugin_id: &str) -> Result<Vec<String>, String> {
+        self.plugin(plugin_id)
+            .map(|p| p.requested.clone())
+            .map_err(|e| e.to_string())
+    }
+
+    /// 当前有效授予（engine 权威；越界项永不在此出现）。
+    pub fn granted(&self, plugin_id: &str) -> Result<Vec<String>, String> {
+        self.plugin(plugin_id)
+            .map(|p| p.granted.clone())
+            .map_err(|e| e.to_string())
     }
 
     /// 激活插件：Pending → Active（此后 invoke 可用）

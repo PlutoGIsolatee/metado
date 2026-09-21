@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::env::{exported_namespaces, registry_permissions};
+use crate::env::{exported_namespaces, registry_permissions, resolve_requested};
 use metado_engine::{Container, Manifest, SignedBundle};
 use metado_executor::PluginRuntime;
 
@@ -35,9 +35,8 @@ pub fn test_mdl(bytes: &[u8], extra_grant: &[String]) -> Result<Vec<TestOutcome>
     let manifest = Manifest::from_toml(&manifest_raw).map_err(|e| format!("manifest: {}", e))?;
 
     let available = registry_permissions();
-    let mut requested = manifest.permission.clone();
-    requested.extend(extra_grant.iter().cloned());
-    // §4.3：导出命名空间 = 支持请求命名空间 ∪ {metado}（未支持 → 导出不存在）
+    // requested = 声明 ∪ permission-set 展开 ∪ extra（C1）；导出与授予都以 real requested 为准
+    let requested = resolve_requested(&manifest, extra_grant)?;
     let exported = exported_namespaces(&requested, &available);
     let granted = requested.clone();
 
