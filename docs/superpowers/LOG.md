@@ -271,3 +271,99 @@ run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` �
 - **全量回归（本轮后）**：`cargo test --workspace --jobs 1` → 64 套件全 ok，**214 passed，
   0 failed，0 warning，exit 0**（较上轮 218 passed：+1 新增、−5 删除的 resolver 测试）。
 - 未改审计文档本体；审计结论「台账基本准确、诚实」维持。
+
+---
+
+## 2026-09-22 设计单元：引擎可替换与状态所有权（对话式设计评审）
+
+与用户逐条对话，确立"引擎整体可替换 + 引擎持有状态"的增补设计；**产出新文档**
+`docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md`（未提交）。
+
+### 确立的关键结论
+
+- **权威两轴**：决策权威始终宿主（命令源）；**状态所有权归引擎**（选 3）。宿主永不直接读写
+  store，只经 IPC 命令/查询（store 对宿主黑盒）。
+- **可信域**：宿主 + 引擎 + 引擎数据目录（含 store）同一可信域，store **不签名不加密**；
+  防的是**插件**篡改（能力面 + 文件树双隔离）；信任决策不落 store（是宿主决策非引擎事实）。
+- **store 文档模型**：自描述文档、**命名空间 + 字段**（命名空间 = 引入该字段的引擎分支标识符，
+  branch-id 唯一性暂不约束）；统一字段规则——认得按语义用、**不认得原样保留绝不据此拒绝**、
+  只加不改、主版本不认拒绝启动（唯一硬门闩）、原子替换（tmp→rename）、单写者（启动文件锁）。
+- **物理分离**：governance（引擎自身，独立原子文件机制）与 plugin-data 区（低层存储原语 +
+  数据）**物理与机制分离**；低层持久化原语**非唯一**、供内置能力复用（storage 不特殊），
+  **具体形态与具体内置 API 一并推后**。
+- **生命周期**：三态 absent / installed / uninstalled；`granted` 是**纯放行集非运行门槛**
+  （**granted 空也可运行**，未授能力调用 PermissionDenied）；pending 取消；可运行性 = installed。
+- **`active`（引擎级）运行时不可变**：为引擎产物启动配置，不进 store，运行时 `available`
+  不可变（setActive 从管理面移出）。
+- **update 语义**：同签校验；`granted ← 旧 ∩ 新` 自动延续 + 新请求项需显式 grant（同签
+  不能偷扩权）；重装还原旧私有卷数据。
+- **SemVer 门闩**：仅插件 manifest version 强制 SemVer，**只管理"是否执行更新"**（>旧允许、
+  ==拒绝、<拒绝走 uninstall+install），不承载授权/兼容语义；允许 prerelease。
+- **权限模型归正**：三层不变，**逐次裁决归引擎执行层**，不存在"宿主执行引擎授权"；"宿主侧
+  二次裁决"表述废止（改"引擎执行层裁决（CLI 内联）"）。
+- **CLI/dev**：`mdl run` 走同一 governance store 机制（工作目录，可 `--workdir`）；生产差异
+  只剩"授权决策者"。
+
+### real-execution-chain 计划修正两点（写入新文档 §11）
+1. "宿主侧二次裁决"归正为"引擎执行层裁决（CLI 内联）"；
+2. CLI 落工作目录 store。
+
+### 当前状态
+- 新增文档（未提交）：`docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md`
+（待评审）。设计讨论待续：可回写主文档（rev 11）或按评审结论再修订。
+- **未写任何代码**；既有代码基线不变（214 passed 维持）。
+
+### 下一步
+- 用户评审新文档；定稿后决定是否同步修订主文档（rev 10 §7/§8.5/§11.2/§11.4）与
+  real-execution-chain 计划（两处措辞）。
+- 待补：branch-id 唯一性机制、低层持久化原语形态 + 具体内置 API（一并推后）。
+
+---
+
+## 2026-09-22 命名重构与归档收尾（对话式设计评审完结）
+
+在用户评审通过 `2026-09-22-engine-replaceable-store-design.md` 后，完成全文命名重构、旧文档归档、LOG 补记，设计评审正式完结。
+
+### 命名替换记录（全文批量替换）
+
+| 旧术语 | 新术语 | 说明 |
+|---|---|---|
+| `store` / `store.json` | `state` / `state.json` | 引擎状态文档，去“存储”歧义 |
+| `governance` / `governance store` | `engine` / `engine/state.json` | 引擎自身数据目录与文件 |
+| `plugin-data` / `plugin-data 区` | `plugins/` + `shared/`（顶层） | 插件数据域拆分：私有归属插件、共享归属签名者 |
+| `plugin-data/private/` | `plugins/<id>/private/` | 私有 keyspace 归属插件目录 |
+| `plugin-data/shared/` | `shared/`（顶层） | 共享域跨插件，提升到顶层 |
+| `bundles/`（平级） | `plugins/<id>/bundles/` | 插件本体归入插件目录 |
+| `store.json` | `state.json` | 状态文档 |
+| `__meta__.json` | `meta.json` | 无双下划线，跨平台安全 |
+| `__ownership__.json` | `ownership.json` | 同上 |
+| `store`（泛指） | `state` | 全文替换，含变量/路径/注释 |
+| `governance`（泛指） | `engine` | 全文替换 |
+| `plugin-data`（泛指） | `plugins/` / `shared/` | 全文替换 |
+
+### 核心语义修正（同步落笔）
+
+1. **可重算数据一律不持久化**：`signer_id`/`version`/`requested`/`entries` 全从 `.mdl` 重算；state 仅留决策事实（granted/domain config/lifecycle effective）、引用（bundle_ref/volume_ref）、状态键。
+2. **同签判据改为“当前存储本体比对”**：无首装指纹锚，直接与当前存储本体重算 signer 比对；主文档 §6.2-3 字面据此修订。
+3. **`active` 运行时不可变**：改为引擎产物启动配置，不进 state，运行时 `available` 不可变。
+4. **`granted` 空也可运行**：pending 取消；可运行性 = installed；放行 = granted。
+5. **`active` 不进 state**：移出管理面 `setActive`，改为引擎产物启动配置。
+
+### 归档动作
+
+1. **设计文档归档**：`docs/superpowers/specs/2026-09-21-real-execution-chain-design.md` 顶部加弃用/归档标记，指向新文档。
+2. **实现计划归档**：`docs/superpowers/plans/2026-09-21-real-execution-chain.md` 顶部加弃用/归档标记，指向新文档。
+3. **新基线文档**：`docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md`（未提交，待评审通过后作为增补设计留存，不合入主文档）。
+
+### 评审结论
+
+- 新文档评审通过，**作为独立增补文档留存，不合入主文档**。
+- 旧 `real-execution-chain` 设计/计划文档已归档，仅供留档参考。
+- 后续执行以新设计文档为准，实现计划将另行编写。
+
+### 当前状态
+
+- 新设计文档：`docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md`（未提交，评审通过待落笔）。
+- 旧设计/计划文档：已加归档标记。
+- 代码基线不变（214 passed 维持）。
+- 下一步：编写新实现计划（基于新设计文档），按 TDD 落地。

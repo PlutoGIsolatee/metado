@@ -1,5 +1,9 @@
 # 真实执行链路（最小链路）Implementation Plan
 
+> **⚠️ 归档/弃用通知**：此计划文档已废弃，仅供留档参考。后续执行以 `docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md` 为准，实现计划将另行编写。
+
+# 真实执行链路（最小链路）Implementation Plan
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 `@metado/runtime` 合成模块从形状 stub 升级为真实宿主 dispatch，使 `mdl run` 对 storage/log/time.now/crypto.randomBytes 端到端执行真实代码。
@@ -525,9 +529,7 @@ impl HostDispatch for RealHost {
                 self.ensure("storage.read")?;
                 let key = arg_string(args, 0);
                 let bytes = self.storage.read(&key)?;
-                let text = String::from_utf8(bytes)
-                    .map_err(|e| format!("storage read {} not UTF-8: {}", key, e))?;
-                Ok(Value::String(text))
+                Ok(Value::String(String::from_utf8_lossy(&bytes).into_owned()))
             }
             ("storage", "write") => {
                 self.ensure("storage.write")?;

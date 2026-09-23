@@ -1,8 +1,10 @@
 # 真实执行链路设计（最小链路）v1
 
+> **⚠️ 归档/弃用通知**：此文档已废弃，仅供留档参考。后续执行以 `docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md` 为准。
+
 日期：2026-09-21
 分支：`feat/v1-engine`
-状态：待评审（评审后锁定）
+状态：**已归档/弃用**（原：待评审）
 
 > 范围：评审总体判断「治理语义是占位而非实现」之执行主体。本设计把 `@metado/runtime`
 > 合成模块从**形状 stub** 升级为**真实宿主 dispatch**——插件在 `mdl run` 下真实读写 storage、
@@ -46,10 +48,11 @@ const mkHost = (ns, m, p) => (...a) =>
 `(ns: string, method: string, ...args) => JsValue`。
 
 - 内部调用 `HostDispatch::call(ns, method, args)`。
-- 同步形状（`is_promise_style`=false）：`Ok(v)` 直接返回 `v`；`Err(m)` 同步 throw
-  `Error(m)`（name=`PermissionDenied` 当且仅当错误以 `PermissionDenied:` 开头，否则 `CapabilityError`）。
+- 同步形状（`is_promise_style`=false）：`Ok(v)` 直接返回 `v`；`Err(m)` 同步 throw 普通
+  JS `Error(m)`（消息以 `PermissionDenied:` 开头表示宿主二次裁决拒绝；name 属性 v1 不设，
+  保持内置 API 基本语义）。
 - promise 形状：`Ok(v)` → 已 resolve 的 `JsPromise`（`JsPromise::resolve(v)`）；`Err(m)` →
-  已 reject 的 `JsPromise`（能力错误 `Error(m)`，name 同上规则）。
+  已 reject 的 `JsPromise`（`Error(m)`，同上）。桥自身不外抛。
 - 参数：`JsValue → Value`（沿用 `js_to_value` 的单值转换；数组参数 v1 折叠规则即 `null`，
   与值模型一致——`storage.write(key, value)` 的 `value` 本单元仅支持字符串/数字/布尔/null）。
 
@@ -94,8 +97,8 @@ pub struct RealHost {
 - 构建：`RealHost::new(storage_dir: PathBuf, granted: Vec<String>)`；
   `run_mdl` 用 `METADO_STORAGE_DIR` env（缺省 `./metado-storage`）构造并传入
   `new_with_host(..., Some(Box::new(host)))`。
-- 权限错误消息前缀 `PermissionDenied:` 由 §2 映射为 `PermissionDenied` 命名错误（与
-  runtime-export-spec 拒绝语义一致）；其余真实失败为能力错误。
+- 权限错误消息前缀 `PermissionDenied:` 表示宿主二次裁决拒绝；其余真实失败为能力错误
+  （普通 `Error(message)`，v1 不设 name 属性，与 runtime-export-spec 拒绝语义并存不冲突）。
 
 ## 5. E2E 示例与验收
 
