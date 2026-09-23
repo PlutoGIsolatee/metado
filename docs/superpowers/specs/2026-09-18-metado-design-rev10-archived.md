@@ -1,6 +1,12 @@
+# Metado 设计文档（归档版 / Archived）
+
+> **⚠️ 归档/弃用通知**：此文档为旧版本（rev 10），已废弃。当前最新设计请参考 `2026-09-18-metado-design.md`（rev 11）及 `specs/subsystems/` 子系统文档集。
+
+---
+
 # Metado 设计文档
 
-日期：2026-09-18（rev 11：引擎持久化状态、同签判据重算、生命周期三态、active不可变、术语统一）
+日期：2026-09-18（rev 10：引擎绝对独立进程、宿主开发者定制引擎、入口模型）
 状态：待评审
 
 > **声明：本文所有实现示例（Rust 示意、manifest/TOML 示例、RPC 方法名、capability 形状、API 用法）仅供示意，保证接口语义一致即可；具体命名与形态以实现为准。**
@@ -17,7 +23,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 ### 目标
 
-- 跨平台（Android / Windows / Linux）可嵌入，**引擎绝对独立进程/服务**（宿主进程内无引擎代码、引擎进程内无宿主代码，运行期），**引擎持久化状态（engine/state.json）实现可替换、自洽恢复**
+- 跨平台（Android / Windows / Linux）可嵌入，**引擎绝对独立进程/服务**（宿主进程内无引擎代码、引擎进程内无宿主代码，运行期）
 - 语言 = **标准 JS（ESM）**，可混合 WASM 计算内核（内置能力，v1 后落地 §4.5），且两者高效进程内集成
 - **插件源码 = 合法 Node 项目**（除 API）：标准 npm 结构（package.json + node_modules）、Node 工具链直接可用；**唯一例外**——Node 核心 API（process/fs/net/child_process/require…）运行时不可用，一律以受治理的 metado 能力替代（仅白名单 shim：Buffer/path/events）
 - **能力 API = 统一模块 `@metado/runtime`（跨运行时契约）**：引擎内为内置虚拟模块，Node 内为真实 npm 包，同一源码双运行时；**目标状态**：Node 可运行 + 现有工具链完全可测试（napi 完整等价后端，实现推迟见 §15）
@@ -64,7 +70,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 ```
 
 - **引擎进程绝对独立**：自洽运行、故障隔离、宿主进程内无任何引擎代码，亦无宿主代码驻留引擎进程（§11）
-- 引擎持久化状态（engine/state.json）实现**自洽恢复**：启动读取 state，重建插件表、授权、配置，不依赖宿主输入
+- **引擎核心**：单一实现，CLI 与生产共用同一引擎，保证行为对齐
 - **宿主交互仅经 IPC**：管理方法面（host→engine）+ 回调面（engine→host：capability message / 事件流）
 
 ## 4. 核心概念
@@ -199,7 +205,7 @@ engine.define_permission_set("finance",  ["http.get.api.bank", "storage.read", "
 
 1. **载荷前独立验签闸门**：`load_plugin` 先验签（甚至不解包 payload），失败即拒
 2. **签名 = 稳定身份**：signer_id 绑定插件身份
-3. **同签更新（引擎强制）**：同 plugin_id 的新 bundle，`signer_pubkey` 指纹必须等于**当前存储本体**的 signer（自本体重算比对），否则拒绝 —— 防冒名覆盖，不依赖用户决策；引擎为唯一写者，本体只能经引擎入位，无须持久化首装锚
+3. **同签更新（引擎强制）**：同 plugin_id 的新 bundle，`signer_pubkey` 指纹必须与原安装记录一致，否则拒绝 —— 防冒名覆盖，不依赖用户决策
 4. **引擎不裁决可信性**：只做完整性验证 + 身份比对；发布者可不可信由用户/宿主决定（对应 Android 的渠道/侧载）
 5. **私钥永不入引擎**：签名私钥只在插件开发者侧，文件只含公钥与指纹
 
@@ -228,7 +234,6 @@ storage keyspace:
 - 显式 storage keyspace 是**唯一真相**；realm 内存态是缓存（best-effort），随时可丢
 - 可选 **boot 钩子**：realm 每次创建时触发一次，用于从 storage 重水合
 - 更新（同签新版本）→ realm 必然重建，旧 realm 回收
-- **引擎持久化状态（engine/state.json）实现自洽恢复**：启动读取 state，重建插件表、授权、配置，不依赖宿主输入
 
 ### 7.2 Realm 生命 = 宿主可回收的运行时资源
 
@@ -236,7 +241,7 @@ storage keyspace:
 - 驱逐后再次 invoke = 重建 realm → boot 重水合 → 执行
 - 温 realm 只是**性能缓存，不是语义**；三种常驻模式只是性能档位，正确性契约对全部一致
 
-### 7.4 分级常驻模式（请求 / 授予 / 执行）
+### 7.3 分级常驻模式（请求 / 授予 / 执行）
 
 manifest 顶层声明（请求）：
 
@@ -257,36 +262,24 @@ lifecycle = "resident-high"   # 或 "resident-low"（默认）| "cold"
 - 运行时只看 **effective 模式**做驱逐决策，不看声明
 - engine/宿主 API：`plugin.lifecycle()` 读 effective；宿主设置 effective；用户改为 `cold` → 立即驱逐 realm
 
-### 7.3 状态模型（修订）
-
-```
-absent → installed（记录入 state；即刻可 invoke）
-       → uninstalled（记录移除；数据默认保留，purge 删）
-granted ⊆ requested：纯放行集合，非运行门槛（granted 空也可运行）
-运行态全在 realm 层：无 realm / 温 / evicted / quarantine
-```
-
-- **可运行性 = installed；放行 = granted**。“能跑但没权限”常态，非异常。
-- `pending` 状态**取消**（仅作展示标签"未授任何权限"，不载执行语义）。
-- 权限语义归正：**缺权 ≠ 缺导出**（导出照静态面，调用才裁决）；插件装完即可 invoke，未授能力的能力调用一律 `PermissionDenied`。
-
-### 7.5 生命周期状态机
+### 7.4 生命周期状态机
 
 ```
 absent → installing（验签，记录 plugin_id + signer 指纹）→ installed
-       → loading（解包 / 静态检查 / realm 创建）→ active ⇄ evicted（host evict → 冷；invoke → 重建 realm + boot 重水合）
+       → loading（解包 / 静态检查 / realm 创建）→ pending（等待宿主授予）
+       → active ⇄ evicted（host evict → 冷；invoke → 重建 realm + boot 重水合）
        → quarantine（沙箱崩溃 / fuel 耗尽致 realm 不可用；宿主可 reload，引擎进程不崩）
        → active'（update 同签新版本，realm 必然重建）
 任何状态 → uninstalled（撤销 grants + 移除插件；storage 默认保留，见 7.5）
 ```
 
-### 7.6 卸载语义
+### 7.5 卸载语义
 
 - 卸载**默认保留私有 storage**（重装即还原数据），持久化价值保留
 - 显式清除可选：宿主 API / `mdl purge` 按插件清除（满足用户隐私诉求）
 - 共享 signer 域不随单个插件清理
 
-### 7.7 并发
+### 7.6 并发
 
 - **插件级单线程**：同一插件同一时刻仅一个 invoke，任务排队（head-of-line 由插件自身 await 行为承担）
 - **跨插件并行**：独立 realm → 相互隔离、可并行；v1 单线程协作调度多 realm，将来 realm+任务队列移入 worker 线程是内部优化，对 API 无感
@@ -310,7 +303,7 @@ metado-cli / 绑定    # 引擎工具链与宿主 IPC 绑定
 - 宿主开发者：`default-features = false, features = ["metado-cap-storage"]` + 自研能力 crate，组合矩阵按 crate 隔离而非 feature 网格
 - **开放能力契约（源码级扩展）**：`#[metado::capability(set = "...")]` 是导出给**宿主开发者** crate 的公开宏 / `impl CapabilitySet` trait，一个 impl 产出——权限名表 + 宿主函数集 + JS 绑定（`@metado/runtime` 导出结构）+ trace 元数据 + capability 路由描述 + 领域规则钩子（配置驱动）
 - 定制能力与内置能力**完全同待遇**：最小权限注入、运行时裁决、trace、行为对齐
-- 双层裁剪：**编译期 features** 决定"能用什么"，**引擎产物内运行时激活**（构建期配置）；`available = compiled ∩ active`，**`active` 为引擎产物启动配置，运行时不可变，不进 state**
+- 双层裁剪：**编译期 features** 决定"能用什么"，**引擎产物内运行时激活**（构建期配置，可经 RPC 管理面调整）；`available = compiled ∩ active`
 
 ### 8.2 内置能力集（built-in capability sets）
 
@@ -340,8 +333,7 @@ metado-cli / 绑定    # 引擎工具链与宿主 IPC 绑定
   - 引擎（boa）：模块加载器把该 specifier 解析为**内置虚拟模块**，按当前 realm 授权视图提供导出
   - Node（开发/测试）：解析为真实 npm 包，同一 specifier、单一源码双运行时
 - 插件写法：`import { http, storage, metado } from "@metado/runtime"`
-- **导出存在性 = 静态面、调用放行 = 动态面**：导出按 `available`（requested ∩ compiled ∩ active）静态裁剪，realm 创建定格；`granted` 运行时可削减，**导出不随 revoke 重建 realm**，已授后被削的调用走运行期 `PermissionDenied`（reject promise，两种运行时同一语义，§9.2）
-- **可运行性 = installed，放行 = granted**：`granted` 空也可运行，仅作逐能力调用的放行集合；`pending` 状态取消
+- **导出存在性 = 静态面、调用放行 = 动态面**：导出按 `available`（requested ∩ compiled ∩ active）静态裁剪；`granted` 运行时可削减，导出不随每次 revoke 重建 realm——已授后被削的调用走运行期 `PermissionDenied`（reject promise，两种运行时同一语义，§9.2）
 - **载荷传递 = 整值 + 容量上限**（v1 不支持流式宿主 API，§15）：能力入参出参为完整 Value；实施默认 + 宿主 domain rules 配额约束 Bytes/元素上限，超限 = `ExecutionError{kind=limit}`；大 blob 尽量留在引擎内（内置 storage 不跨 IPC），需逐期诱导增量时为推迟的流式能力后置
 - 「无 import 样板」的自动绑定注入**放弃**（Node 下不存在自由标识符注入，统一 import 才能保证单源码双运行时）
 
@@ -467,7 +459,7 @@ payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store�
 | `listPlugins / uninstall / purge` | 生命周期管理（uninstall 默认保留 storage） |
 | `registerPermissionSet(name, perms)` | 定义权限集 |
 | `setDomainConfig(ruleId, json)` | 领域规则运行时配置（白名单/配额/降级） |
-| `getState / setState` | 读写引擎持久化状态（engine/state.json） |
+| `setActive(plugin_id, caps)` / 能力开关 | 引擎产物激活面调整（`available`） |
 | trace 订阅 | 流式轨迹开/关 |
 
 - **引擎从不等待用户**：任何需人确认的动作（安装、resident-high、授权）= 宿主自己弹 UI → 事后调 RPC（grant/setLifecycle）
@@ -481,8 +473,8 @@ payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store�
 
 ### 11.4 权威划分
 
-- **引擎 = 无主见执行者 + 状态所有者**：代码执行、权限裁决、生命周期、签名验签、沙箱、内置能力机制（模块在引擎内自给自足）、**持久化状态（engine/state.json）、单写者、原子替换、文件锁、自主状态落盘**
-- **宿主 = 决策权威 + 命令源 + 观测**：信任决策（安装/削减/升级确认）、管理配置（白名单/配额/密钥供给）、**不直接读写 state**、app 驻留服务（经 capability message）、观测消费
+- **引擎 = 无主见执行者**：代码执行、权限裁决、生命周期、签名验签、沙箱、内置能力机制（模块在引擎内自给自足）
+- **宿主 = 决策与管理**：信任决策（安装/削减/升级确认）、管理配置（白名单/配额/密钥供给/能力开关）、app 驻留服务（经 capability message）、观测消费
 - 领域规则 v1 为引擎内配置驱动（setDomainConfig），不做宿主实时回调；将来需要宿主实时的走 `dispatch` 通道（§8.4）
 
 ### 11.5 值、错误、信任线
@@ -565,9 +557,9 @@ let out = plugin.invoke("onMessage", value).await?;
 // Result<Value, ExecutionError>
 ```
 
-更新验签：引擎对比**当前存储本体**的 signer 与新 bundle 的 signer（自本体重算比对），引擎为唯一写者、本体只能经引擎入位，**无须持久化首装指纹锚**（§6.2-3 修订）。
+更新验签：引擎按 plugin_id 保存首次安装的 `signer_pubkey` 指纹，后续同 plugin_id 的新 bundle 验签比对（§6.2-3）。
 
-## 14. 范围分解与阶段（修订）
+## 14. 范围分解与阶段
 
 本设计由多个子系统组成，实现按阶段推进。另有**开放研究项**（先于对应阶段收敛、锁定）：
 
@@ -575,7 +567,7 @@ let out = plugin.invoke("onMessage", value).await?;
 - **boa 对 Web 类型/约定的支持面核验**（URL/Blob/TextEncoder/fetch 语义在 boa 下的现实缺口），反向约束导出形状选择
 - **`metado-cap-wasm` 实现前核验**：boa 的 WebAssembly 支持面（复用标准面 vs 引擎自托管运行器，§4.5）；**WASM esm-integration 草案语义细节**（named exports / global 解开 / default 语义，参照 Vite 8.1 与 Node 实现收敛）；Node 侧 `.wasm` import 的 parity 路径（Node 实验支持 vs 作者经 Vite，为 `@metado/runtime` Node 供给决策）；`instantiateStreaming` 是否纳入双面
 
-1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**、**状态持久化（engine/state.json、单写者、原子替换、文件锁）**（无 JS 执行）
+1. **引擎核心（metado-engine）**：签名验签、容器/manifest 解析（非自定义语言语法）、**入口/模块注册**、权限解析器、**值模型**、错误模型，以及**开放的能力框架（`#[capability]` 宏 + `CapabilitySet` trait、构建期注册）**（无 JS 执行）
 2. **JS 执行器**：boa 桥接、**Node 风格模块解析**（exports field / node_modules 逐级）、模块系统挂载（容器文件树）、**`@metado/runtime` 虚拟内置模块映射**、值互转、事件循环集成、**执行预算**（interrupt/递归/栈限制）
 3. **内置能力集（metado-cap-*）**：能力框架落地 + http/storage/vfs/file/time/log/crypto（含 signer 命名空间），独立 crate/feature
 4. **CLI 工具（mdl）**：build/sign/verify、run/watch（开发密钥自动签名 + 热重载）、test、env、trace（§12），引擎 in-process 宿主 + 可配置 grants / --ask 授权模拟，npm 拷入

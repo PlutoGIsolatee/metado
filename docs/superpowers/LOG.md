@@ -367,3 +367,46 @@ run/test/trace/daemon `PluginRuntime::new(exported, granted, surface, files)` �
 - 旧设计/计划文档：已加归档标记。
 - 代码基线不变（214 passed 维持）。
 - 下一步：编写新实现计划（基于新设计文档），按 TDD 落地。
+
+---
+
+## 2026-09-23 设计文档完结与子系统拆分
+
+### 本次完成工作
+
+**1. 主设计文档全量修订（rev 10 → rev 11）**
+- 将 `docs/superpowers/specs/2026-09-22-engine-replaceable-store-design.md` 确认的增补设计全量合入主文档 `2026-09-18-metado-design.md`（rev 10 → rev 11）
+- 核心变更已在 `2026-09-22` 日志中记录：state持久化、术语统一、生命周期三态、同签判据改为当前本体重算、active不可变、可重算数据不持久化、同签判据改为当前本体重算、CLI/dev走同一state机制
+
+**2. 主设计文档子系统拆分（14个子系统文档）**
+在 `docs/superpowers/specs/subsystems/` 下创建 14 个子系统文档 + 索引：
+- 01-overview.md / 02-architecture.md / 03-core-concepts.md / 04-permissions.md
+- 05-signature-trust.md / 06-lifecycle.md / 07-host-capabilities.md
+- 08-execution-errors.md / 09-packaging-build.md / 10-engine-host-interaction.md
+- 11-cli.md / 11-engine-api.md / 12-scope-phases.md / 13-deferred.md
+- README.md（子系统索引 + 修订记录表）
+
+**3. 旧文档归档**
+- `2026-09-21-real-execution-chain-design.md` → 顶部加弃用标记，指向新设计
+- `2026-09-21-real-execution-chain.md` (plan) → 顶部加弃用标记
+- 删除 `2026-09-21-real-execution-chain-conformance.md`
+
+**4. 文档库结构更新**
+```
+docs/superpowers/specs/
+├── 2026-09-18-metado-design.md (rev 11, 主设计)
+├── 2026-09-22-engine-replaceable-store-design.md (增补，不合入主文档)
+├── 2026-09-21-real-execution-chain-design.md (归档)
+└── subsystems/ (14 子系统 + README.md 索引)
+```
+
+### 当前状态
+- 主设计文档 rev 11 已落盘（`2026-09-18-metado-design.md`）
+- 14 子系统文档 + README.md 已落盘（`specs/subsystems/`）
+- 旧设计/计划文档已归档标记
+- 代码基线不变（214 passed 维持）
+- 新增设计文档 `2026-09-22-engine-replaceable-store-design.md` 评审通过，作为独立增补文档留存，不合入主文档
+
+### 下一步
+- 编写新实现计划（基于 rev 11 主设计 + 子系统文档），按 TDD 落地
+- 计划覆盖：engine/state.json 读写+锁、state 文档模型、plugins/shared/bundles 目录管理、low-level persistence primitive trait、PluginRuntime::new_with_state、CLI run_mdl 接线、示例/测试、回归
