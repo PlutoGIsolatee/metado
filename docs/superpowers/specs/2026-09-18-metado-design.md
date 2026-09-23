@@ -32,7 +32,7 @@ Metado 的核心价值是**细粒度权限治理**：插件级最小权限、用
 
 - 任何自定义脚本语法 —— 插件就是标准 JS
 - 代码转换/最小化/混淆 —— 分发物零转换、零 minify（TS 编译推迟，见 §15）
-- TypeScript —— v1 源码 = 纯 ESM JS，.ts 不支持（推迟，见 §15）
+- **TypeScript —— v1 源码 = 纯 ESM JS，.ts 支持延后至 v1.1，v1 不实现类型检查与增量编译；v1.1+ 运行时全量编译 + 内容哈希缓存、仅 transpile、swc 编译器、SourceMap v3、可选 `tsc --noEmit` 类型检查（仅 `mdl test`/CI）；`mdl build` 仅打包签名，不编译**
 - 引擎裁决"发布者可不可信" —— 信任决策在用户/宿主侧，引擎只验证不裁决
 - 插件之间跨插件调用（v1 不支持）
 - 交互式单步调试器（v1 只做热重载 + 轨迹观测）
@@ -582,12 +582,13 @@ let out = plugin.invoke("onMessage", value).await?;
 5. **引擎进程 + IPC**：transport 抽象、管理方法面、capability message 回调面、事件流，平台实现（Android/Win/Linux）
 6. **示例与契约测试**：宿主开发者定制能力示例（构建期扩展性验证）、行为对齐验证、CLI/生产对比测试
 7. **（推迟）Node 运行/测试包**：`@metado/runtime`（引擎侧已按规格供给）+ `metado-node`（napi 完整等价后端）、`@metado/testing` 测试架势
+8. **（推迟）TypeScript 支持**：v1 不实现，v1.1+ 运行时全量编译 + 内容哈希缓存、仅 transpile、swc 编译器、SourceMap v3、可选 `tsc --noEmit` 类型检查（仅 `mdl test`/CI）；`mdl build` 仅打包签名，不编译
 
 ## 15. 明确推迟项
 
 - 交互式单步调试器（trace API 预留扩展点）
 - **Node 运行/测试包（推后）**：`@metado/runtime` 的 Node 侧真实供给 + `metado-node`（napi-rs 链 `metado-core` 的完整等价后端，真实权限裁决同源 Rust）、`@metado/testing`。**v1 不做**（纯 JS fallback 也不做）：需每平台原生构建矩阵 + V8/boa 语义对齐（由阶段 6 契约测试兜底）；但「能力 API = `@metado/runtime` 模块统一规格」的形态 v1 即遵循，引擎侧先行供给
-- **TypeScript**：v1 源码 = 纯 ESM JS；`.ts` 编译暂不加入 `mdl build`（需先定编译器选型 swc-rs/esbuild、sourcemap 恢复 .ts 行号，并修订"零转换"承诺，契机再启）
+- **TypeScript**：v1 源码 = 纯 ESM JS；`.ts` 支持延后至 v1.1，v1 不实现类型检查与增量编译；v1.1+ 运行时全量编译 + 内容哈希缓存、仅 transpile、swc 编译器、SourceMap v3、可选 `tsc --noEmit` 类型检查（仅 `mdl test`/CI）；`mdl build` 仅打包签名，不编译
 - **WASM 计算内核（`metado-cap-wasm`，内置 API）**：能力契约已定（§4.5），**v1 不实现**——标准 `WebAssembly` 命名空间 + 直接 `.wasm` 导入（esm-integration 草案）双面，同一实现内核、同一执行预算；**WASI 永久排除**（无 OS 接口面，与无 syscall / 值进出无句柄一致）；wasmtime 留作性能刚需时切换
 - 跨插件调用
 - 零拷贝共享 buffer（`Bytes` 优化）
