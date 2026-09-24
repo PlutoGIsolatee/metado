@@ -40,6 +40,7 @@ payload = ZIP（entry = 文件，路径 = 容器内相对路径；v1 全 store�
   src/**             # ESM 模块，原样字节
   node_modules/**    # npm 依赖，原样字节
   wasm/**            # WASM 计算内核，原样字节
+  rotation-entry     # 仅轮换过渡包：旧钥签署的迁移背书独立条目（与 mdl.toml 并列，不混入 manifest；条目名实现定；语义见 §6.4）
 ```
 
 - **索引 = ZIP central directory**：任意模块按 path O(1) 定位 offset/length，无需自写二进制索引表；**入口表 = manifest（entries）**，容器内无冗余索引

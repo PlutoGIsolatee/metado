@@ -1,6 +1,6 @@
 # Metado 设计文档 - 子系统索引
 
-> 基于 `2026-09-18-metado-design.md`（rev 11）拆分的子系统文档集合
+> 基于 `2026-09-18-metado-design.md`（rev 12）拆分的子系统文档集合
 
 ---
 
@@ -58,4 +58,5 @@
 | `setState/getState` | 新增管理面 RPC |
 | 可重算数据 | 一律不持久化（signer_id/version/requested/entries 从 .mdl 重算） |
 | 同签判据 | 改为当前存储本体比对，移除首装指纹锚 |
+| 主动密钥轮换 | 旧钥可用时经旧钥背书随版本递增更新生效，此后旧钥不再被接受；丢失路径与算法升级仍推迟，墓碑持久化形式留待研究 |
 | TypeScript | v1 不支持，v1.1+ 运行时编译+缓存、仅 transpile、无增量、无类型检查 |

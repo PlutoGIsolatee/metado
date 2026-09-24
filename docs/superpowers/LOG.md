@@ -410,3 +410,25 @@ docs/superpowers/specs/
 ### 下一步
 - 编写新实现计划（基于 rev 11 主设计 + 子系统文档），按 TDD 落地
 - 计划覆盖：engine/state.json 读写+锁、state 文档模型、plugins/shared/bundles 目录管理、low-level persistence primitive trait、PluginRuntime::new_with_state、CLI run_mdl 接线、示例/测试、回归
+
+---
+
+## 2026-09-24 设计单元：主动密钥轮换入文档（rev 12）
+
+对话确认"旧钥仅在更新时为新钥背书、成功后旧钥对该 plugin_id 不再被接受"，落为**主动轮换**语义；墓碑机制整体留待进一步研究，未进入设计。
+
+### 本次落笔
+
+- 主文档 `2026-09-18-metado-design.md`（rev 11 → rev 12）：
+  - 新增 §6.4 主动密钥轮换（旧钥可用）：范围仅旧钥可用；存在形式为 payload 内与 `mdl.toml` 并列的独立条目（不混入 manifest，条目名实现定，仅过渡包携带）；statement 仅旧钥签名，只绑 `plugin_id` + old→new（只绑密钥链，不绑 payload 摘要）；新钥覆盖靠信封签名覆盖整个 payload，信封格式不变；只 update 路径求值，首装忽略；验证顺序五步，任一失败整体拒绝；授权延续与信任模型不变。
+  - §6.2-3 加例外指针；§2 与 §15 的密钥轮换推迟项收窄为丢失路径 + 算法升级；§10.2 payload 清单加 `rotation-entry` 行。
+- 子系统镜像：`05-signature-trust.md`（§6.2/§6.4）、`09-packaging-build.md`（§10.2）、`13-deferred.md`（推迟项）、`README.md`（基线 rev 12 + 修订行）。
+
+### 未进入设计（留待研究）
+
+- 墓碑机制整体（含 uninstall 墓碑与 `rotated_from`）：旧钥作废的持久化形式，当前不进入设计。
+- 旧钥不可用/丢失后的迁移路径；签名 scheme 升级时的迁移路径。
+
+### 当前状态
+
+- **未写任何代码**；既有代码基线不变（214 passed 维持）。
