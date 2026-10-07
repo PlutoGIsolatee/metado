@@ -382,12 +382,85 @@ Cold start ──► 读 state ──► state 可解析且主版本认 ──�
 
 ### 5.2 S2 值模型（未敲定）
 
-> **本章未敲定。** 关于值的一切具体约束（类型集合、规范/错误语义、
-> 边界映射、线格式、协议/传输层划分等对话产出的细节）均**不固定**，
-> 不构成设计承诺。其他章节**不得引用**本节的任何具体约束作为依据；
-> 涉及值语义的交叉引用一律待本节重新敲定后补入。
->
-> 状态：**未敲定**（2026-09-24 标记；对话预留 S2 编号，正文待重写）。
+
+### 5.3 S3 执行器
+
+#### 1 概述
+
+- 标识：executor
+- 目的：JS(boa)+WASM(wasmtime) 执行承载，realm 隔离、线程模型、手动终止
+- 范围：执行承载、realm 线程模型、预算选型、手动终止通道；值模型归 §5.2（未敲定）
+- 终止能力依据：boa `run_async_with_budget` drop future（协作式）；wasmtime 选择性 epoch 中断（per-Store 回调鉴别）
+
+#### 2 职责与非目标（要点）
+
+负责：realm 隔离、线程隔离（realm 专属线程）、手动终止、默认零自动限制；非目标：不定义值模型、不建 I/O/WASI、不承载插件间互调。
+
+#### 3 对外接口
+
+- execute(realm, module, args) → Result<Value, ExecutionError>
+- terminate(realm) → Result<()>
+
+#### 4 内部结构
+
+realm 专属线程（current-thread runtime + LocalSet）；wasmtime Store `!Sync`，boa eval future `!Send`；每 realm 一 wasm instance，编译产物跨 realm 共享（D1）。
+
+#### 5 数据设计
+
+编译产物缓存跨 realm 共享；预算仅显式声明项存在。
+
+#### 6 关键流程与算法
+
+手动终止 JS：abort eval（drop future，停在指令边界，Context 丢弃重建）；手动终止 wasm：先置 victim flag，后 `engine.increment_epoch()`（顺序不可反）。
+
+#### 7 异常处理与边界条件
+
+| 情形 | 处置 |
+|---|---|
+| JS 抛错/reject | PluginError（realm 存活） |
+| wasm trap | PluginError（realm 存活） |
+| 手动关停 | Fault（引擎强制终止，realm 回收） |
+| 显式超时到期（epoch，显式声明） | Fault（引擎强制终止，realm 回收） |
+| 全局内存压力触发终止 | Fault（引擎强制终止，realm 回收） |
+| 卡在宿主阻塞调用 | 中断失效（配合调用层 timeout） |
+| 纯直线长代码块 | 中断延迟至下一检查点 |
+
+#### 8 横向关注点
+
+线程隔离、终止后不可复用、mmap 写执行。
+
+#### 9 部署与运行
+
+不适用
+
+#### 10 设计决策（要点）
+
+D1 加载时编译+缓存；D2 版本跟随（确定性单位=引擎镜像）；D3 三态（epoch 仅手动终止默认启用/超时显式声明/fuel 可选声明）；D4 全局内存调控+选择性终止（阈值与 victim 策略待定）；D5 每 realm 一 instance，编译产物跨 realm 共享；D6 首版启用 wasm（可选导入）；D7 协作式终止通道。
+
+#### 11 约束与假设
+
+epoch 默认只作终止通道；自动限制仅显式声明；终止为协作式；epoch_interruption 与 Winch 不兼容。
+
+#### 12 需求追溯
+
+G1/G3/G5/G6/G7/G10
+
+#### 13 测试要点
+
+选择性中断只杀 victim、先 flag 后 epoch、默认零限制、确定性。
+
+#### 14 开放问题与风险
+
+**14.1 待拍项**：D4 阈值与 realm 选择策略（可参照 lifecycle：resident-high/low/cold 倾向，但算法未定，需 S1/S5/S7 协同）
+
+**14.2 开放问题**：协作式终止非即时性（重指令）、Winch 不兼容、JS 预算演进、fuel/超时声明配置面（S4）、终止通道工程化、性能（S2 敲定后）
+
+**14.3 风险**：32 位虚拟地址空间耗尽（多 mmap 段碎片化）、协作式终止边界（宿主阻塞需 timeout）、线程模型竞态、终止后不可复用（需 S1/S5/S7）
+
+#### 15 变更历史
+
+- 2026-09-30：S3 草案 v4（基于实测：boa drop future + wasmtime 选择性 epoch 中断）
+
 
 ## 9. 风险与推迟项
 
